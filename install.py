@@ -15,6 +15,7 @@ class App(tk.Tk):
         tk.Tk.wm_title(self, 'SHARKtools installation')
 
         self.project = Project()
+        self.log = self.project.log
 
         self._set_frame()
 
@@ -45,7 +46,7 @@ class App(tk.Tk):
         self.button_continue.grid(row=4, column=0, **k)
 
         self.stringvar_info = tk.StringVar()
-        self.label_info = tk.Label(self, textvariable=self.stringvar_info, fg='red')
+        self.label_info = tk.Label(self, textvariable=self.stringvar_info)
         self.label_info.grid(row=5, column=0, **k)
 
         grid_configure(self)
@@ -77,7 +78,10 @@ class App(tk.Tk):
         self.stringvar_python_path = tk.StringVar()
         self.label_python_path = tk.Label(frame, textvariable=self.stringvar_python_path)
         self.label_python_path.grid(row=1, column=0, **k)
-        self.stringvar_python_path.set(self.project.python_exe)
+        text = self.project.python_exe
+        if self.project.python_exe is None:
+            text = '<No python.exe found>'
+        self.stringvar_python_path.set(text)
 
     def _set_labaleframe_plugins(self):
         frame = self.labelframe_plugins
@@ -109,24 +113,30 @@ class App(tk.Tk):
         Makes some checks and runs all steps.
         :return:
         """
+        steps_to_run = self.steps_widget.get_checked_item_list()
+
         # Add plugins
         selected_plugins = [plugin for plugin in self.boolvars_plugins if self.boolvars_plugins[plugin].get()]
-        if not selected_plugins:
-            messagebox.showinfo('Plugins', 'Du har inte valt någon plugin!')
-            return
+        for step in steps_to_run:
+            if 'miljö' in step:
+                python_path = self.stringvar_python_path.get()
+                if not python_path or not os.path.exists(python_path):
+                    messagebox.showinfo('Python', f'Kan inte hitta python.exe!\n{python_path}')
+                    return
 
-        python_path = self.stringvar_python_path.get()
-        if not python_path or not os.path.exists(python_path):
-            messagebox.showinfo('Python', 'Kan inte hitta python.exe!')
-            return
+                if not selected_plugins:
+                    messagebox.showinfo('Plugins', 'Du har inte valt någon plugin!')
+                    return
 
         self.project.select_plugins(selected_plugins)
 
         # Setup project
         self.project.setup_project()
 
+        self.label_info.config(fg='red')
+        bg_color = self.button_continue.cget('bg')
+        self.button_continue.config(bg='red', text='Installerar...')
         # Run steps
-        steps_to_run = self.steps_widget.get_checked_item_list()
         for step in steps_to_run:
             words = step.split()
             words[0] = words[0] + 'r'
@@ -135,6 +145,9 @@ class App(tk.Tk):
             self.label_info.update_idletasks()
             self.project.run_step(step)
 
+        self.button_continue.config(bg=bg_color, text='Installera')
+
+        self.label_info.config(fg='green')
         self.stringvar_info.set('KLART!')
 
     def _get_root_dir(self):
@@ -145,10 +158,14 @@ class App(tk.Tk):
         self.stringvar_root_dir.set(self.project.directory)
 
     def _get_python_path(self):
-        file_path = filedialog.askopenfilename()
+        file_path = filedialog.askopenfilename(filetypes=[('Python exicutable', '*.exe')])
         if not file_path:
             return
-        self.project.python_exe = file_path
+        if not file_path.endswith('python.exe'):
+            self.log.warning('Not a valid python.exe file')
+            messagebox.showwarning('Select python.exe', 'Not a valid python path!')
+            return
+        self.project.set_python_path(file_path)
         self.stringvar_python_path.set(self.project.python_exe)
 
     def _quit_toolbox(self):
