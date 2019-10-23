@@ -22,9 +22,10 @@ class Project(object):
         self.selected_plugins = []
 
         self.steps = collections.OrderedDict({'Ladda ner programmet': self.download_program,
-                      'Skapa virtuell python-miljö': self.create_environment,
-                      'Installera python-paket': self.install_packages,
-                      'Skapa körbar bat-fil': self.create_run_program_file})
+                                              'Ladda ner sharkpylib': self.download_sharkpylib,
+                                              'Skapa virtuell python-miljö': self.create_environment,
+                                              'Installera python-paket': self.install_packages,
+                                              'Skapa körbar bat-fil': self.create_run_program_file})
 
         self.directory = directory
 
@@ -144,6 +145,42 @@ class Project(object):
             raise
 
         self._run_batch_file(self.batch_file_install_requirements)
+
+    def download_sharkpylib(self):
+        self._delete(self.temp_directory)
+        os.makedirs(self.temp_directory)
+        if not self._check_path(self.temp_directory):
+            self.log.warning(f'Not a valid path: {self.temp_directory}')
+            raise Exception
+        if not os.path.exists(self.temp_directory):
+            os.makedirs(self.temp_directory)
+
+        # Main program
+        url = r'https://github.com/sharksmhi/sharkpylib/zipball/master/'
+        urllib.request.urlretrieve(url, r'{}/sharkpylib.zip'.format(self.temp_directory))
+
+        # Unzip
+        file_list = os.listdir(self.temp_directory)
+        for file_name in file_list:
+            if file_name[:-4] == 'sharkpylib':
+                file_path = os.path.join(self.temp_directory, file_name)
+                with zipfile.ZipFile(file_path, "r") as zip_ref:
+                    zip_ref.extractall(self.temp_directory)
+
+        # Copy lib
+        if not self._check_path(self.program_directory):
+            self.log.warning(f'Not a valid path: {self.program_directory}')
+            raise Exception
+        all_files = os.listdir(self.temp_directory)
+        for file_name in all_files:
+            if f'-sharkpylib-' in file_name:
+                source_dir = os.path.join(self.temp_directory, file_name, 'sharkpylib')
+                target_dir = os.path.join(self.program_directory, 'sharkpylib')
+                self._delete(target_dir)
+                shutil.copytree(source_dir, target_dir)
+                break
+
+        # self._delete(self.temp_directory)
 
     def create_run_program_file(self):
         """
@@ -450,9 +487,12 @@ class Log(object):
 
 
 if __name__ == '__main__':
-    p = Project()
-    p.select_plugins(['SHARKtools_qc_sensors', 'SHARKtools_tavastland'])
-    p.download_program()
-    p.create_environment()
-    p.install_packages()
-    p.create_run_program_file()
+    pass
+    # p = Project()
+    # p.setup_project()
+    # # p.select_plugins(['SHARKtools_qc_sensors', 'SHARKtools_tavastland'])
+    # p.download_program()
+    # p.download_sharkpylib()
+    # # p.create_environment()
+    # # p.install_packages()
+    # # p.create_run_program_file()
