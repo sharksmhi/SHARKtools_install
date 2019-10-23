@@ -7,6 +7,7 @@ import re
 import time
 import datetime
 import collections
+import sys
 
 class Project(object):
     def __init__(self):
@@ -262,24 +263,22 @@ class Project(object):
         except:
             self._load_plugins()
 
-    def _find_python_exe(self, root_folder='C:/', max_time=7):
+    def _find_python_exe(self, root_folder='C:/'):
         self.python_exe = None
         if self._load_python_path():
             return True
 
-        self.log.info(f'Trying to find python.exe for {max_time} seconds.')
-        t0 = time.time()
-        for root, dirs, files in os.walk(root_folder, topdown=False):
-            if 'python36' not in root.lower():
-                continue
-            for name in files:
-                if name == 'python.exe':
-                    self.python_exe = os.path.join(root, name)
-                    self.log.info(f'Found python path: {self.python_exe}')
-                    return self._save_python_path()
-            if (time.time() - t0) > max_time:
-                self.log.warning('python.exe not found!')
-                return False
+        for path in sorted(sys.path):
+            if 'python36' in path.lower():
+                file_list = os.listdir(path)
+                for file_name in file_list:
+                    if file_name == 'python.exe':
+                        self.python_exe = os.path.join(path, file_name)
+                        self.log.info(f'Found python path: {self.python_exe}')
+                        return True
+        self.log.warning('python.exe not found!')
+        return False
+
 
     def _save_python_path(self):
         if not self.python_exe:
