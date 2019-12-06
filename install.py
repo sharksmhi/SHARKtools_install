@@ -6,6 +6,9 @@ from tkinter import filedialog
 from tkinter import messagebox
 from project import Project
 
+import exceptions
+
+
 class App(tk.Tk):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -42,8 +45,9 @@ class App(tk.Tk):
         self.labelframe_steps = tk.LabelFrame(self, text='Vilka steg vill du göra?')
         self.labelframe_steps.grid(row=3, column=0, **k)
 
-        self.button_continue = tk.Button(self, text='Fortsätt', command=self._continue)
+        self.button_continue = tk.Button(self, text='Fortsätt', command=self._run_steps)
         self.button_continue.grid(row=4, column=0, **k)
+        self.bg_color = self.button_continue.cget('bg')
 
         self.stringvar_info = tk.StringVar()
         self.label_info = tk.Label(self, textvariable=self.stringvar_info)
@@ -108,6 +112,22 @@ class App(tk.Tk):
                                               pre_checked_items=items,
                                               **k)
 
+    def _run_steps(self):
+        try:
+            self._continue()
+        except exceptions.MissingVenvException as e:
+            messagebox.showerror('Pythonmiljö saknas!', e)
+            self.stringvar_info.set('Något gick fel!')
+        except exceptions.CantRunProgramException as e:
+            messagebox.showerror('SHARKtools är inte installerat korrekt!', e)
+            self.stringvar_info.set('Något gick fel!')
+        except Exception as e:
+            messagebox.showerror('Något gick fel!', e)
+            self.stringvar_info.set('Något gick fel!')
+            raise Exception
+        finally:
+            self.button_continue.config(bg=self.bg_color, text='Installera')
+
     def _continue(self):
         """
         Makes some checks and runs all steps.
@@ -123,7 +143,7 @@ class App(tk.Tk):
                 if not python_path or not os.path.exists(python_path):
                     messagebox.showinfo('Python', f'Kan inte hitta python.exe!\n{python_path}')
                     return
-
+            elif 'plugins' in step:
                 if not selected_plugins:
                     messagebox.showinfo('Plugins', 'Du har inte valt någon plugin!')
                     return
@@ -134,7 +154,6 @@ class App(tk.Tk):
         self.project.setup_project()
 
         self.label_info.config(fg='red')
-        bg_color = self.button_continue.cget('bg')
         self.button_continue.config(bg='red', text='Installerar...')
         # Run steps
         for step in steps_to_run:
@@ -145,7 +164,7 @@ class App(tk.Tk):
             self.label_info.update_idletasks()
             self.project.run_step(step)
 
-        self.button_continue.config(bg=bg_color, text='Installera')
+        self.button_continue.config(bg=self.bg_color, text='Installera')
 
         self.label_info.config(fg='green')
         self.stringvar_info.set('KLART!')

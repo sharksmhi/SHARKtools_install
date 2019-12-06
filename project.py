@@ -9,6 +9,9 @@ import datetime
 import collections
 import sys
 
+import exceptions
+
+
 class Project(object):
     def __init__(self):
 
@@ -22,9 +25,10 @@ class Project(object):
         self.selected_plugins = []
 
         self.steps = collections.OrderedDict({'Ladda ner programmet': self.download_program,
+                                              'Ladda ner plugins': self.download_plugins,
                                               'Ladda ner sharkpylib': self.download_sharkpylib,
                                               'Skapa virtuell python-miljö': self.create_environment,
-                                              'Installera python-paket': self.install_packages,
+                                              # 'Installera python-paket': self.install_packages,
                                               'Skapa körbar bat-fil': self.create_run_program_file})
 
         self.directory = directory
@@ -49,7 +53,11 @@ class Project(object):
         self.root_directory = directory
         self.__directory = os.path.join(directory, 'SHARKtools')
         self.program_directory = os.path.join(self.directory, 'SHARKtools')
+        self.sharkpylib_directory = os.path.join(self.program_directory, 'sharkpylib')
+        self.plugins_directory = os.path.join(self.program_directory, 'plugins')
         self.temp_directory = os.path.join(self.directory, '_temp_sharktools')
+        self.temp_plugins_dir = os.path.join(self.temp_directory, 'temp_plugins')
+        self.temp_sharkpylib_dir = os.path.join(self.temp_directory, 'temp_sharkpylib')
         self.wheels_directory = os.path.join(self.directory, 'wheels')
         self.install_history_directory = os.path.join(self.directory, 'install_history')
         self.venv_directory = os.path.join(self.directory, self.venv_name)
@@ -96,14 +104,19 @@ class Project(object):
         self.log.set_file_path(self.log_file_path)
 
     def download_program(self):
-        self._delete(self.temp_directory)
-        os.makedirs(self.temp_directory)
-        self._download_from_github()
+        self._reset_directory(self.temp_directory)
+        self._download_main_program_from_github()
         self._unzip_files()
         self._copy_main_program()
+        self._create_requiriemnts_file()
+        # self._delete(self.temp_directory)
+
+    def download_plugins(self):
+        self._reset_directory(self.temp_directory)
+        self._download_plugins_from_github()
+        self._unzip_files()
         self._copy_plugins()
         self._create_requiriemnts_file()
-        self._delete(self.temp_directory)
 
     def create_environment(self):
         """
@@ -120,14 +133,16 @@ class Project(object):
         # Run file
         self._run_batch_file(self.batch_file_create_venv)
 
+        # Install python packages
+        self.install_packages()
+
     def install_packages(self):
         """
         Installs packages in self.requirements_file_path into the virtual environment.
         Also installs pyproj and basemap if found in file.
         :return:
         """
-        self._delete(self.wheels_directory)
-        os.makedirs(self.wheels_directory)
+        self._reset_directory(self.wheels_directory)
         # First check for wheel files
         with open(self.requirements_file_path) as fid:
             for line in fid:
@@ -142,13 +157,12 @@ class Project(object):
         
         if not os.path.exists(self.venv_directory):
             self.log.exception('No venv found')
-            raise
+            raise exceptions.MissingVenvException('Virtuell pythonmiljö saknas. Skapa en miljö innan du installerar paket!')
 
         self._run_batch_file(self.batch_file_install_requirements)
 
     def download_sharkpylib(self):
-        self._delete(self.temp_directory)
-        os.makedirs(self.temp_directory)
+        self._reset_directory(self.temp_directory)
         if not self._check_path(self.temp_directory):
             self.log.warning(f'Not a valid path: {self.temp_directory}')
             raise Exception
@@ -175,12 +189,11 @@ class Project(object):
         for file_name in all_files:
             if f'-sharkpylib-' in file_name:
                 source_dir = os.path.join(self.temp_directory, file_name, 'sharkpylib')
-                target_dir = os.path.join(self.program_directory, 'sharkpylib')
-                self._delete(target_dir)
-                shutil.copytree(source_dir, target_dir)
+                self._delete(self.sharkpylib_directory)
+                shutil.copytree(source_dir, self.sharkpylib_directory)
                 break
 
-        # self._delete(self.temp_directory)
+        self._delete(self.temp_directory)
 
     def create_run_program_file(self):
         """
@@ -189,6 +202,15 @@ class Project(object):
         """
         if not self._check_path(self.batch_file_run_program):
             self.log.warning(f'Not a valid path: {self.batch_file_run_program}')
+
+        # Check if all info exists
+        if not os.path.exists(self.program_directory) or not os.listdir(self.program_directory):
+            raise exceptions.CantRunProgramException('Huvudprogram är inte nedladdat')
+        elif not os.path.exists(self.venv_directory) or not os.listdir(self.venv_directory):
+            raise exceptions.CantRunProgramException('Virtuell miljö är inte skapad')
+        elif not os.path.exists(self.sharkpylib_directory) or not os.listdir(self.sharkpylib_directory):
+            raise exceptions.CantRunProgramException('sharkpylib är inte nedladdat')
+
         lines = []
         lines.append(f'call {self.venv_directory}\\Scripts\\activate')
         lines.append(f'python {self.program_directory}\\main.py')
@@ -202,7 +224,6 @@ class Project(object):
         :return:
         """
         lines = []
-
         env_activate_path = os.path.join(self.venv_directory, 'Scripts\\activate')
         lines.append(f'call {env_activate_path}')
 
@@ -256,6 +277,11 @@ class Project(object):
             raise FileNotFoundError
 
         lines = []
+
+        disk = self.directory[0]
+        # Browse to disk
+        lines.append(f'{disk}:')
+
         # Go to python environment directory
         lines.append(f'cd {self.directory}')
 
@@ -316,7 +342,6 @@ class Project(object):
         self.log.warning('python.exe not found!')
         return False
 
-
     def _save_python_path(self):
         if not self.python_exe:
             return False
@@ -353,7 +378,7 @@ class Project(object):
         else:
             return False
 
-    def _download_from_github(self):
+    def _download_main_program_from_github(self):
         if not self._check_path(self.temp_directory):
             self.log.warning(f'Not a valid path: {self.temp_directory}')
             raise Exception
@@ -363,6 +388,13 @@ class Project(object):
         # Main program
         url = r'https://github.com/sharksmhi/SHARKtools/zipball/master/'
         urllib.request.urlretrieve(url, r'{}/SHARKtools.zip'.format(self.temp_directory))
+
+    def _download_plugins_from_github(self):
+        if not self._check_path(self.temp_directory):
+            self.log.warning(f'Not a valid path: {self.temp_directory}')
+            raise Exception
+        if not os.path.exists(self.temp_directory):
+            os.makedirs(self.temp_directory)
 
         # Plugins
         for plugin in self.selected_plugins:
@@ -386,11 +418,53 @@ class Project(object):
         # Copy main program
         for file_name in all_files:
             if '-SHARKtools-' in file_name:
+                # First save plugins
+                self._save_subdirs_temporary()
+                # Now copy main program
                 source_dir = os.path.join(self.temp_directory, file_name)
                 target_dir = os.path.join(self.program_directory)
                 self._delete(target_dir)
                 shutil.copytree(source_dir, target_dir)
+                # Finally import temporary saved plugins
+                self._import_temporary_subdirs_plugins()
                 break
+
+    def _save_subdirs_temporary(self):
+        # Copy plugins
+        self._make_directories(self.temp_directory)
+        source_dir = self.plugins_directory
+        self._make_directories(source_dir)
+        self._delete(self.temp_plugins_dir)
+        shutil.copytree(source_dir, self.temp_plugins_dir)
+
+        # Copy sharkpylib
+        source_dir = os.path.join(self.program_directory, 'sharkpylib')
+        self._make_directories(source_dir)
+        self._delete(self.temp_sharkpylib_dir)
+        shutil.copytree(source_dir, self.temp_sharkpylib_dir)
+
+    def _import_temporary_subdirs_plugins(self):
+        # Copy plugins
+        if not os.path.exists(self.temp_plugins_dir):
+            self.log.warning(f'No temporary plugins: {self.temp_plugins_dir}')
+            raise Exception
+        plugin_dirs = os.listdir(self.temp_plugins_dir)
+        for plugin_name in plugin_dirs:
+            source_dir = os.path.join(self.temp_plugins_dir, plugin_name)
+            target_dir = os.path.join(self.plugins_directory, plugin_name)
+            self._delete(target_dir)
+            shutil.copytree(source_dir, target_dir)
+            self._delete(source_dir)
+
+        # Copy sharkpylib
+        if not os.path.exists(self.temp_sharkpylib_dir):
+            self.log.warning(f'No temporary sharkpylib: {self.temp_sharkpylib_dir}')
+            raise Exception
+        source_dir = os.path.join(self.temp_sharkpylib_dir)
+        target_dir = self.sharkpylib_directory
+        self._delete(target_dir)
+        shutil.copytree(source_dir, target_dir)
+        self._delete(source_dir)
 
     def _copy_plugins(self):
         if not self._check_path(self.program_directory):
@@ -401,7 +475,7 @@ class Project(object):
             for file_name in all_files:
                 if f'-{plugin}-' in file_name:
                     source_dir = os.path.join(self.temp_directory, file_name)
-                    target_dir = os.path.join(self.program_directory, 'plugins', plugin)
+                    target_dir = os.path.join(self.plugins_directory, plugin)
                     self._delete(target_dir)
                     shutil.copytree(source_dir, target_dir)
                     break
@@ -439,7 +513,21 @@ class Project(object):
             return True
         return False
 
+    def _reset_directory(self, directory):
+        """
+        Resets the given directory. Firsst delete via self._delete to make sure root path is correct.
+        Then makes directory tree. Also if non existing from the beginning.
+        :param directory:
+        :return:
+        """
+        self._delete(directory)
+        self._make_directories(directory)
 
+    def _make_directories(self, directory):
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+
+        
 class Log(object):
     """
     Simple log file.
@@ -484,6 +572,7 @@ class Log(object):
         else:
             with open(self.file_path, 'a') as fid:
                 fid.write(text + '\n')
+
 
 
 if __name__ == '__main__':
