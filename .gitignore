@@ -24,8 +24,8 @@ system/settings.pkl
 users/* 
 !users/default
 
-main.exe
-main.spec
+install.exe
+install.spec
 dist/*
 build/*
 wheels/*

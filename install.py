@@ -125,6 +125,8 @@ class App(tk.Tk):
             messagebox.showerror('Något gick fel!', e)
             self.stringvar_info.set('Något gick fel!')
             raise Exception
+        else:
+            messagebox.showinfo('Intallation klar!', 'Installationen verkar ha gått bra!')
         finally:
             self.button_continue.config(bg=self.bg_color, text='Installera')
 
