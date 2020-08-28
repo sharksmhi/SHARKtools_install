@@ -1,13 +1,13 @@
+import collections
+import datetime
 import os
+import re
 import shutil
 import subprocess
+import sys
 import urllib.request
 import zipfile
-import re
-import time
-import datetime
-import collections
-import sys
+
 
 import exceptions
 
@@ -216,7 +216,6 @@ class Project(object):
         lines.append(f'python {self.program_directory}\\main.py')
         with open(self.batch_file_run_program, 'w') as fid:
             fid.write('\n'.join(lines))
-
 
     def _create_batch_install_requirements_file(self):
         """
@@ -572,7 +571,6 @@ class Log(object):
         else:
             with open(self.file_path, 'a') as fid:
                 fid.write(text + '\n')
-
 
 
 if __name__ == '__main__':
