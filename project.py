@@ -7,15 +7,18 @@ import subprocess
 import sys
 import urllib.request
 import zipfile
+import urllib.request
 
+from configparser import ConfigParser
+from pathlib import Path
 
 import exceptions
 
 
 class Project(object):
-    def __init__(self):
-
-        directory = 'C:\\'  # property
+    def __init__(self, logger=None):
+        
+        self.logger = logger
 
         self.python_exe = None
 
@@ -24,16 +27,16 @@ class Project(object):
         self.available_plugins = []
         self.selected_plugins = []
 
+        self.copied_packages = []
+
         self.steps = collections.OrderedDict({'Ladda ner programmet': self.download_program,
                                               'Ladda ner plugins': self.download_plugins,
-                                              'Ladda ner sharkpylib': self.download_sharkpylib,
+                                              'Ladda ner smhi-paket': self.download_packages,
                                               'Skapa virtuell python-miljö': self.create_environment,
-                                              # 'Installera python-paket': self.install_packages,
+                                              'Installera python-paket (requirements)': self.install_packages,
                                               'Skapa körbar bat-fil': self.create_run_program_file})
 
-        self.directory = directory
-
-        self.log = Log()
+        self.directory = 'C:/'
 
         self._find_plugins()
 
@@ -43,32 +46,34 @@ class Project(object):
     def directory(self):
         """
         Project will be created under this directory.
-        :param directory: str
-        :return:
         """
         return self.__directory
 
     @directory.setter
     def directory(self, directory):
         self.root_directory = directory
-        self.__directory = os.path.join(directory, 'SHARKtools')
-        self.program_directory = os.path.join(self.directory, 'SHARKtools')
-        self.sharkpylib_directory = os.path.join(self.program_directory, 'sharkpylib')
-        self.plugins_directory = os.path.join(self.program_directory, 'plugins')
-        self.temp_directory = os.path.join(self.directory, '_temp_sharktools')
-        self.temp_plugins_dir = os.path.join(self.temp_directory, 'temp_plugins')
-        self.temp_sharkpylib_dir = os.path.join(self.temp_directory, 'temp_sharkpylib')
-        self.wheels_directory = os.path.join(self.directory, 'wheels')
-        self.install_history_directory = os.path.join(self.directory, 'install_history')
-        self.venv_directory = os.path.join(self.directory, self.venv_name)
+        self.__directory = Path(directory, 'SHARKtools')
 
-        self.batch_file_create_venv = os.path.join(self.install_history_directory, 'create_venv.bat')
-        self.batch_file_install_requirements = os.path.join(self.install_history_directory, 'install_requirements.bat')
-        self.batch_file_run_program = os.path.join(self.directory, 'run_program.bat')
+        self.program_directory = Path(self.directory, 'SHARKtools')
+        self.plugins_directory = Path(self.program_directory, 'plugins')
 
-        self.log_file_path = os.path.join(self.install_history_directory, 'install.log')
+        self.wheels_directory = Path(self.directory, 'wheels')
+        self.install_history_directory = Path(self.directory, 'install_history')
+        self.venv_directory = Path(self.directory, self.venv_name)
 
-        self.requirements_file_path = os.path.join(self.install_history_directory, 'requirements.txt')
+        self.temp_directory = Path(self.directory, '_temp_sharktools')
+        self.temp_program_dir = Path(self.temp_directory, 'temp_program')
+        self.temp_plugins_dir = Path(self.temp_directory, 'temp_plugins')
+        self.temp_packages_dir = Path(self.temp_directory, 'temp_packages')
+        self.temp_move_plugins_dir = Path(self.temp_directory, 'temp_subdirs')
+
+        self.batch_file_create_venv = Path(self.install_history_directory, 'create_venv.bat')
+        self.batch_file_install_requirements = Path(self.install_history_directory, 'install_requirements.bat')
+        self.batch_file_run_program = Path(self.directory, 'run_program.bat')
+
+        self.log_file_path = Path(self.install_history_directory, 'install.log')
+
+        self.requirements_file_path = Path(self.install_history_directory, 'requirements.txt')
 
     def run_step(self, step):
         """
@@ -89,7 +94,7 @@ class Project(object):
         """
 
         if self.directory is None:
-            self.log.exception('Project directory not set!')
+            self.logger.error('Project directory not set!')
             raise ValueError
 
         if not os.path.exists(self.directory):
@@ -101,22 +106,23 @@ class Project(object):
         if not os.path.exists(self.install_history_directory):
             os.makedirs(self.install_history_directory)
 
-        self.log.set_file_path(self.log_file_path)
-
     def download_program(self):
-        self._reset_directory(self.temp_directory)
+        self._reset_directory(self.temp_program_dir)
         self._download_main_program_from_github()
-        self._unzip_files()
+        self._unzip_main_program()
         self._copy_main_program()
-        self._create_requiriemnts_file()
-        # self._delete(self.temp_directory)
 
     def download_plugins(self):
-        self._reset_directory(self.temp_directory)
+        self._reset_directory(self.temp_plugins_dir)
         self._download_plugins_from_github()
-        self._unzip_files()
+        self._unzip_plugins()
         self._copy_plugins()
-        self._create_requiriemnts_file()
+
+    def download_packages(self):
+        self._reset_directory(self.temp_packages_dir)
+        self._download_packages_from_github()
+        self._unzip_packages()
+        self._copy_packages()
 
     def create_environment(self):
         """
@@ -124,7 +130,7 @@ class Project(object):
         :return:
         """
         # Delete old environment
-        venv_dir = os.path.join(self.directory, self.venv_name)
+        venv_dir = Path(self.directory, self.venv_name)
         self._delete(venv_dir)
 
         # Create file
@@ -142,6 +148,7 @@ class Project(object):
         Also installs pyproj and basemap if found in file.
         :return:
         """
+        self._create_requirements_file()
         self._reset_directory(self.wheels_directory)
         # First check for wheel files
         with open(self.requirements_file_path) as fid:
@@ -151,69 +158,133 @@ class Project(object):
                     # Copy file
                     # TODO: Check bit version
                     file_name = sline.split(' ')[-1]
-                    shutil.copy(os.path.join('wheels', file_name), os.path.join(self.wheels_directory, file_name))
+                    shutil.copy(Path('wheels', file_name), Path(self.wheels_directory, file_name))
 
         self._create_batch_install_requirements_file()
         
         if not os.path.exists(self.venv_directory):
-            self.log.exception('No venv found')
+            self.logger.error('No venv found')
             raise exceptions.MissingVenvException('Virtuell pythonmiljö saknas. Skapa en miljö innan du installerar paket!')
 
         self._run_batch_file(self.batch_file_install_requirements)
 
-    def download_sharkpylib(self):
-        self._reset_directory(self.temp_directory)
-        if not self._check_path(self.temp_directory):
-            self.log.warning(f'Not a valid path: {self.temp_directory}')
-            raise Exception
-        if not os.path.exists(self.temp_directory):
-            os.makedirs(self.temp_directory)
+    def _create_requirements_file(self):
+        """
+        Look for requirement files and stores valid lines in self.requirements_file_path
+        :return:
+        """
+        lines = []
+        for root, dirs, files in os.walk(self.program_directory, topdown=False):
+            for name in files:
+                if name == 'requirements.txt':
+                    file_path = Path(root, name)
+                    with open(file_path) as fid:
+                        for line in fid:
+                            module = line.strip()
+                            if module.startswith('#'):
+                                continue
+                                url = module.strip('#').strip()
+                                if url.startswith('https://raw'):
+                                    req_list = [item for item in self._get_requirements_list_from_url(url) if not item.startswith('#')]
+                                    lines.extend(req_list)
+                            elif module and module not in lines:
+                                lines.append(module)
 
-        # Main program
-        url = r'https://github.com/sharksmhi/sharkpylib/zipball/master/'
-        urllib.request.urlretrieve(url, r'{}/sharkpylib.zip'.format(self.temp_directory))
+        # Remove duplicates
+        keep_dict = {}
+        for item in sorted(set(lines)):
+            item = item.strip()
+            if item.startswith('#'):
+                continue
+            split_item = item.strip().split('==')
+            pack = split_item[0]
+            keep_dict.setdefault(pack, set())
+            keep_dict[pack].add(item)
 
-        # Unzip
-        file_list = os.listdir(self.temp_directory)
-        for file_name in file_list:
-            if file_name[:-4] == 'sharkpylib':
-                file_path = os.path.join(self.temp_directory, file_name)
-                with zipfile.ZipFile(file_path, "r") as zip_ref:
-                    zip_ref.extractall(self.temp_directory)
+        keep_list = []
+        for key, value in keep_dict.items():
+            if len(value) == 1:
+                keep_list.append(list(value)[0])
+            else:
+                keep_list.append(key)
 
-        # Copy lib
-        if not self._check_path(self.program_directory):
-            self.log.warning(f'Not a valid path: {self.program_directory}')
-            raise Exception
-        all_files = os.listdir(self.temp_directory)
-        for file_name in all_files:
-            if f'-sharkpylib-' in file_name:
-                source_dir = os.path.join(self.temp_directory, file_name, 'sharkpylib')
-                self._delete(self.sharkpylib_directory)
-                shutil.copytree(source_dir, self.sharkpylib_directory)
-                break
+        # Write to file
+        with open(self.requirements_file_path, 'w') as fid:
+            fid.write('\n'.join(sorted(set(keep_list), reverse=True)))  # reverse to have the -e lines last
 
-        self._delete(self.temp_directory)
+    def _get_requirements_list_from_url(self, url):
+        try:
+            with urllib.request.urlopen(url) as f:
+                content_str = f.read().decode('utf-8')
+                return [item.strip() for item in content_str.split('\n')]
+        except Exception as e:
+            self.logger.error(f'Could not download info from URL: {url}')
+            raise
+
+    def _get_packages_to_download_from_github(self):
+        to_download = {}
+        parser = ConfigParser()
+        parser.read('sharksmhi_packages.ini')
+        plugin_list = ['ALL'] + self.selected_plugins
+        for plugin in parser.sections(): 
+            if plugin not in plugin_list:
+                continue
+            for item in parser.items(plugin):
+                pack, url = item
+                to_download[pack] = url 
+        return to_download
+
+    def _download_packages_from_github(self):
+        packages_to_download = self._get_packages_to_download_from_github()
+        for pack, url in packages_to_download.items():
+            print(pack, url)
+            self._download_package_from_github(pack, url)
+
+    def _download_package_from_github(self, package, url):
+        urllib.request.urlretrieve(url, r'{}/{}.zip'.format(self.temp_packages_dir, package))
+
+    def _copy_packages(self):
+        self.copied_packages = []
+        self._check_path(self.temp_packages_dir)
+        all_dirs = os.listdir(self.temp_packages_dir)
+        for _dir in all_dirs:
+            match = re.findall('-.*-', _dir)
+            if not match:
+                continue
+            package = match[0].strip('-')
+            source_dir = Path(self.temp_packages_dir, _dir, package)
+            target_dir = Path(self.program_directory, package)
+            self._delete(target_dir)
+            shutil.copytree(source_dir, target_dir)
+
+            # Copy requirements.txt
+            source_req_file_path = Path(self.temp_packages_dir, _dir, 'requirements.txt')
+            if source_req_file_path.exists():
+                target_req_file_path = Path(target_dir, 'requirements.txt')
+                shutil.copy2(source_req_file_path, target_req_file_path)
+
+            self.logger.info(f'Package {package} copied to {target_dir}')
+            self.copied_packages.append(package)
 
     def create_run_program_file(self):
         """
         Creates a batch file that can be used to run the program.
         :return:
         """
-        if not self._check_path(self.batch_file_run_program):
-            self.log.warning(f'Not a valid path: {self.batch_file_run_program}')
+        self._check_path(self.batch_file_run_program)
 
         # Check if all info exists
         if not os.path.exists(self.program_directory) or not os.listdir(self.program_directory):
             raise exceptions.CantRunProgramException('Huvudprogram är inte nedladdat')
         elif not os.path.exists(self.venv_directory) or not os.listdir(self.venv_directory):
             raise exceptions.CantRunProgramException('Virtuell miljö är inte skapad')
-        elif not os.path.exists(self.sharkpylib_directory) or not os.listdir(self.sharkpylib_directory):
-            raise exceptions.CantRunProgramException('sharkpylib är inte nedladdat')
+        # elif not os.path.exists(self.sharkpylib_directory) or not os.listdir(self.sharkpylib_directory):
+        #     raise exceptions.CantRunProgramException('sharkpylib är inte nedladdat')
 
         lines = []
-        lines.append(f'call {self.venv_directory}\\Scripts\\activate')
-        lines.append(f'python {self.program_directory}\\main.py')
+        lines.append(f'call {Path(self.venv_directory, "Scripts", "activate")}')
+        lines.append(f'cd {self.program_directory}')
+        lines.append(f'python main.py')
         with open(self.batch_file_run_program, 'w') as fid:
             fid.write('\n'.join(lines))
 
@@ -223,7 +294,7 @@ class Project(object):
         :return:
         """
         lines = []
-        env_activate_path = os.path.join(self.venv_directory, 'Scripts\\activate')
+        env_activate_path = Path(self.venv_directory, 'Scripts', 'activate')
         lines.append(f'call {env_activate_path}')
 
         lines.append('python -m pip install --upgrade pip')
@@ -233,12 +304,12 @@ class Project(object):
         # Look for pyproj
         for file_name in wheel_files[:]:
             if 'pyproj' in file_name:
-                lines.append(f'pip install {os.path.join(self.wheels_directory, file_name)}')
+                lines.append(f'pip install {Path(self.wheels_directory, file_name)}')
                 wheel_files.pop(wheel_files.index(file_name))
 
         # Install the rest
         for file_name in wheel_files:
-            lines.append(f'pip install {os.path.join(self.wheels_directory, file_name)}')
+            lines.append(f'pip install {Path(self.wheels_directory, file_name)}')
 
         # Add requirements file
         lines.append(f'pip install -r {self.requirements_file_path}')
@@ -246,38 +317,16 @@ class Project(object):
         with open(self.batch_file_install_requirements, 'w') as fid:
             fid.write('\n'.join(lines))
 
-    def _create_requiriemnts_file(self):
-        """
-        Look for requirement files and stores valid lines in self.requirements_file_path
-        :return:
-        """
-        lines = []
-        for root, dirs, files in os.walk(self.program_directory, topdown=False):
-            for name in files:
-                if name == 'requirements.txt':
-                    file_path = os.path.join(root, name)
-                    with open(file_path) as fid:
-                        for line in fid:
-                            module = line.strip()
-                            if module and module not in lines:
-                                lines.append(module)
-
-        # Write to file
-        with open(self.requirements_file_path, 'w') as fid:
-            fid.write('\n'.join(sorted(set(lines))))
-
     def _create_batch_environment_file(self):
-        if not self._check_path(self.directory):
-            self.log.exception(f'Not a valid directory: {self.directory}')
-            raise NotADirectoryError('Not a valid directory')
+        self._check_path(self.directory)
 
         if not self.python_exe:
-            self.log.exception('Invalid python.exe file')
+            self.logger.error('Invalid python.exe file')
             raise FileNotFoundError
 
         lines = []
 
-        disk = self.directory[0]
+        disk = str(self.directory)[0]
         # Browse to disk
         lines.append(f'{disk}:')
 
@@ -293,7 +342,7 @@ class Project(object):
     def select_plugins(self, plugins_list):
         for plugin in plugins_list:
             if plugin not in self.available_plugins:
-                self.log.exception('Not a valid plugin: {}'.format(plugin))
+                self.logger.error('Not a valid plugin: {}'.format(plugin))
                 raise ValueError
             self.selected_plugins.append(plugin)
 
@@ -304,10 +353,10 @@ class Project(object):
         :return: None
         """
         if not os.path.exists(python_exe):
-            self.log.exception('Not a valid python!')
+            self.logger.error('Not a valid python!')
             raise FileNotFoundError
         if not python_exe.endswith('python.exe'):
-            self.log.exception('Not a valid python!')
+            self.logger.error('Not a valid python!')
             raise FileNotFoundError
         self.python_exe = python_exe
         self._save_python_path()
@@ -316,7 +365,6 @@ class Project(object):
         try:
             resp = urllib.request.urlopen(r'https://github.com/sharksmhi/')
             data = resp.read().decode('UTF-8')
-            #tool_strings = re.findall('SHARKtools\S+', data)
             self.available_plugins = sorted(set(re.findall('SHARKtools_[a-zA-Z0-9_]+', data)))
             # Remove SHARKtools_install (this program)
             if 'SHARKtools_install' in self.available_plugins:
@@ -335,10 +383,10 @@ class Project(object):
                 file_list = os.listdir(path)
                 for file_name in file_list:
                     if file_name == 'python.exe':
-                        self.python_exe = os.path.join(path, file_name)
-                        self.log.info(f'Found python path: {self.python_exe}')
+                        self.python_exe = Path(path, file_name)
+                        self.logger.info(f'Found python path: {self.python_exe}')
                         return True
-        self.log.warning('python.exe not found!')
+        self.logger.warning('python.exe not found!')
         return False
 
     def _save_python_path(self):
@@ -356,7 +404,7 @@ class Project(object):
             line = fid.readline().strip()
             if line and os.path.exists(line):
                 self.python_exe = line
-                self.log.info(f'python.exe path taken from file: {self.python_exe}')
+                self.logger.info(f'python.exe path taken from file: {self.python_exe}')
                 return True
         return False
 
@@ -378,50 +426,58 @@ class Project(object):
             return False
 
     def _download_main_program_from_github(self):
-        if not self._check_path(self.temp_directory):
-            self.log.warning(f'Not a valid path: {self.temp_directory}')
-            raise Exception
-        if not os.path.exists(self.temp_directory):
-            os.makedirs(self.temp_directory)
-
-        # Main program
+        self._check_path(self.temp_program_dir)
         url = r'https://github.com/sharksmhi/SHARKtools/zipball/master/'
-        urllib.request.urlretrieve(url, r'{}/SHARKtools.zip'.format(self.temp_directory))
+        urllib.request.urlretrieve(url, r'{}/SHARKtools.zip'.format(self.temp_program_dir))
 
     def _download_plugins_from_github(self):
-        if not self._check_path(self.temp_directory):
-            self.log.warning(f'Not a valid path: {self.temp_directory}')
-            raise Exception
-        if not os.path.exists(self.temp_directory):
-            os.makedirs(self.temp_directory)
+        self._reset_directory(self.temp_plugins_dir)
 
         # Plugins
         for plugin in self.selected_plugins:
             url = r'https://github.com/sharksmhi/{}/zipball/master/'.format(plugin)
-            urllib.request.urlretrieve(url, r'{}/{}.zip'.format(self.temp_directory, plugin))
+            urllib.request.urlretrieve(url, r'{}/{}.zip'.format(self.temp_plugins_dir, plugin))
 
-    def _unzip_files(self):
-        # Unzip
-        file_list = os.listdir(self.temp_directory)
+    # def _unzip_files(self):
+    #     # Unzip
+    #     file_list = os.listdir(self.temp_directory)
+    #     for file_name in file_list:
+    #         if file_name[:-4] in (['SHARKtools'] + self.selected_plugins):
+    #             file_path = Path(self.temp_directory, file_name)
+    #             with zipfile.ZipFile(file_path, "r") as zip_ref:
+    #                 zip_ref.extractall(self.temp_directory)
+
+    def _unzip_files(self, directory):
+        file_list = os.listdir(directory)
         for file_name in file_list:
-            if file_name[:-4] in (['SHARKtools'] + self.selected_plugins):
-                file_path = os.path.join(self.temp_directory, file_name)
+            file_path = Path(directory, file_name)
+            try:
                 with zipfile.ZipFile(file_path, "r") as zip_ref:
-                    zip_ref.extractall(self.temp_directory)
+                    zip_ref.extractall(directory)
+            except Exception as e:
+                print('Exception!!!')
+                print(e)
+
+    def _unzip_packages(self):
+        self._unzip_files(self.temp_packages_dir)
+
+    def _unzip_plugins(self):
+        self._unzip_files(self.temp_plugins_dir)
+
+    def _unzip_main_program(self):
+        self._unzip_files(self.temp_program_dir)
 
     def _copy_main_program(self):
-        if not self._check_path(self.program_directory):
-            self.log.warning(f'Not a valid path: {self.program_directory}')
-            raise Exception
-        all_files = os.listdir(self.temp_directory)
+        self._check_path(self.program_directory)
+        all_files = os.listdir(self.temp_program_dir)
         # Copy main program
         for file_name in all_files:
             if '-SHARKtools-' in file_name:
                 # First save plugins
                 self._save_subdirs_temporary()
                 # Now copy main program
-                source_dir = os.path.join(self.temp_directory, file_name)
-                target_dir = os.path.join(self.program_directory)
+                source_dir = Path(self.temp_program_dir, file_name)
+                target_dir = Path(self.program_directory)
                 self._delete(target_dir)
                 shutil.copytree(source_dir, target_dir)
                 # Finally import temporary saved plugins
@@ -430,51 +486,51 @@ class Project(object):
 
     def _save_subdirs_temporary(self):
         # Copy plugins
-        self._make_directories(self.temp_directory)
+        self._make_directories(self.temp_move_plugins_dir)
         source_dir = self.plugins_directory
         self._make_directories(source_dir)
-        self._delete(self.temp_plugins_dir)
-        shutil.copytree(source_dir, self.temp_plugins_dir)
+        self._delete(self.temp_move_plugins_dir)
+        shutil.copytree(source_dir, self.temp_move_plugins_dir)
 
-        # Copy sharkpylib
-        source_dir = os.path.join(self.program_directory, 'sharkpylib')
-        self._make_directories(source_dir)
-        self._delete(self.temp_sharkpylib_dir)
-        shutil.copytree(source_dir, self.temp_sharkpylib_dir)
+        # # Copy sharkpylib
+        # source_dir = Path(self.program_directory, 'sharkpylib')
+        # self._make_directories(source_dir)
+        # self._delete(self.temp_packages_dir)
+        # shutil.copytree(source_dir, self.temp_packages_dir)
 
     def _import_temporary_subdirs_plugins(self):
         # Copy plugins
-        if not os.path.exists(self.temp_plugins_dir):
-            self.log.warning(f'No temporary plugins: {self.temp_plugins_dir}')
+        if not os.path.exists(self.temp_move_plugins_dir):
+            self.logger.warning(f'No temporary plugins: {self.temp_move_plugins_dir}')
             raise Exception
-        plugin_dirs = os.listdir(self.temp_plugins_dir)
+        plugin_dirs = os.listdir(self.temp_move_plugins_dir)
         for plugin_name in plugin_dirs:
-            source_dir = os.path.join(self.temp_plugins_dir, plugin_name)
-            target_dir = os.path.join(self.plugins_directory, plugin_name)
+            source_dir = Path(self.temp_move_plugins_dir, plugin_name)
+            target_dir = Path(self.plugins_directory, plugin_name)
             self._delete(target_dir)
+            if not source_dir.is_dir():
+                continue
             shutil.copytree(source_dir, target_dir)
             self._delete(source_dir)
 
-        # Copy sharkpylib
-        if not os.path.exists(self.temp_sharkpylib_dir):
-            self.log.warning(f'No temporary sharkpylib: {self.temp_sharkpylib_dir}')
-            raise Exception
-        source_dir = os.path.join(self.temp_sharkpylib_dir)
-        target_dir = self.sharkpylib_directory
-        self._delete(target_dir)
-        shutil.copytree(source_dir, target_dir)
-        self._delete(source_dir)
+        # # Copy sharkpylib
+        # if not os.path.exists(self.temp_packages_dir):
+        #     self.logger.warning(f'No temporary sharkpylib: {self.temp_packages_dir}')
+        #     raise Exception
+        # source_dir = Path(self.temp_packages_dir)
+        # target_dir = self.sharkpylib_directory
+        # self._delete(target_dir)
+        # shutil.copytree(source_dir, target_dir)
+        # self._delete(source_dir)
 
     def _copy_plugins(self):
-        if not self._check_path(self.program_directory):
-            self.log.warning(f'Not a valid path: {self.program_directory}')
-            raise Exception
-        all_files = os.listdir(self.temp_directory)
+        self._check_path(self.program_directory)
+        all_files = os.listdir(self.temp_plugins_dir)
         for plugin in self.selected_plugins:
             for file_name in all_files:
                 if f'-{plugin}-' in file_name:
-                    source_dir = os.path.join(self.temp_directory, file_name)
-                    target_dir = os.path.join(self.plugins_directory, plugin)
+                    source_dir = Path(self.temp_plugins_dir, file_name)
+                    target_dir = Path(self.plugins_directory, plugin)
                     self._delete(target_dir)
                     shutil.copytree(source_dir, target_dir)
                     break
@@ -484,17 +540,19 @@ class Project(object):
         This will run and delete the batch file.
         :return:
         """
-        if not self._check_path(file_path) or not file_path.endswith('.bat'):
-            self.log.info(f'Not a valid bat file {file_path}')
+        self._check_path(file_path)
+        if file_path.suffix != '.bat':
+            self.logger.info(f'Not a valid bat file {file_path}')
             raise Exception
-        self.log.info(f'Running file {file_path}')
-        subprocess.run(file_path)
+        self.logger.info(f'Running file {file_path}')
+        subprocess.run(str(file_path))
         return True
 
     def _check_path(self, path):
-        if 'SHARKtools' in path:
+        if 'SHARKtools' in str(path):
             return True
-        return False
+        self.logger.error(f'Not a valid path: {path}')
+        raise Exception
 
     def _delete(self, path):
         """
@@ -523,54 +581,9 @@ class Project(object):
         self._make_directories(directory)
 
     def _make_directories(self, directory):
+        self._check_path(directory)
         if not os.path.exists(directory):
             os.makedirs(directory)
-
-        
-class Log(object):
-    """
-    Simple log file.
-    """
-    def __init__(self, file_path=None):
-        if file_path and 'SHARKtools' not in file_path:
-            raise ValueError('Invalid log file path')
-        self.file_path = file_path
-        self.lines = []
-        self._add(f'Installation started at: {datetime.datetime.now().strftime("%Y-%m-%d %H:%M")}' + '\n')
-
-    def set_file_path(self, file_path):
-        if 'SHARKtools' not in file_path:
-            raise ValueError('Invalid log file path')
-        self.file_path = file_path
-
-    def _delete_file(self):
-        if os.path.exists(self.file_path):
-            os.remove(self.file_path)
-
-    def info(self, text):
-        self._add(f'INFO: {text}')
-
-    def warning(self, text):
-        self._add(f'WARNING: {text}')
-
-    def exception(self, text):
-        self._add(f'EXCEPTION: {text}')
-
-    def _add(self, text):
-        if not self.file_path:
-            self.lines.append(text)
-            return
-        elif not os.path.exists(self.file_path):
-            if self.lines:
-                with open(self.file_path, 'w') as fid:
-                    fid.write('\n'.join(self.lines) + '\n')
-                self.lines = []
-        if not os.path.exists(self.file_path):
-            with open(self.file_path, 'w') as fid:
-                fid.write(text + '\n')
-        else:
-            with open(self.file_path, 'a') as fid:
-                fid.write(text + '\n')
 
 
 if __name__ == '__main__':
@@ -579,7 +592,7 @@ if __name__ == '__main__':
     # p.setup_project()
     # # p.select_plugins(['SHARKtools_qc_sensors', 'SHARKtools_tavastland'])
     # p.download_program()
-    # p.download_sharkpylib()
+    # p.download_packages()
     # # p.create_environment()
     # # p.install_packages()
     # # p.create_run_program_file()

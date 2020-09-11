@@ -1,24 +1,30 @@
 
 import os
 import tkinter as tk
-from tkinter import ttk
 from tkinter import filedialog
 from tkinter import messagebox
-from project import Project
+from tkinter import ttk
 
 import exceptions
+from project import Project
+
+import logging
+import logging.config
+import logging.handlers
 
 
 class App(tk.Tk):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+        logging.config.fileConfig('logging.conf')
+        self.logger = logging.getLogger('timedrotating')
+
         self.protocol(u'WM_DELETE_WINDOW', self._quit_toolbox)
 
         tk.Tk.wm_title(self, 'SHARKtools installation')
 
-        self.project = Project()
-        self.log = self.project.log
+        self.project = Project(logger=self.logger)
 
         self._set_frame()
 
@@ -91,7 +97,7 @@ class App(tk.Tk):
         frame = self.labelframe_plugins
         k = dict(padx=10,
                  pady=5,
-                 sticky='nsew')
+                 sticky='w')
         self.boolvars_plugins = {}
         self.checkbuttons_plugins = {}
         r = 0
@@ -118,6 +124,12 @@ class App(tk.Tk):
         except exceptions.MissingVenvException as e:
             messagebox.showerror('Pythonmiljö saknas!', e)
             self.stringvar_info.set('Något gick fel!')
+        except exceptions.NoPluginsSelected as e:
+            messagebox.showerror('Du har inte valt någon plugin!', e)
+            self.stringvar_info.set('Något gick fel!')
+        except exceptions.NoPythonExeFound as e:
+            messagebox.showerror('Kan inte hitta python.exe!!', e)
+            self.stringvar_info.set('Något gick fel!')
         except exceptions.CantRunProgramException as e:
             messagebox.showerror('SHARKtools är inte installerat korrekt!', e)
             self.stringvar_info.set('Något gick fel!')
@@ -129,6 +141,7 @@ class App(tk.Tk):
             messagebox.showinfo('Intallation klar!', 'Installationen verkar ha gått bra!')
         finally:
             self.button_continue.config(bg=self.bg_color, text='Installera')
+
 
     def _continue(self):
         """
@@ -143,12 +156,11 @@ class App(tk.Tk):
             if 'miljö' in step:
                 python_path = self.stringvar_python_path.get()
                 if not python_path or not os.path.exists(python_path):
-                    messagebox.showinfo('Python', f'Kan inte hitta python.exe!\n{python_path}')
-                    return
+                    raise exceptions.NoPythonExeFound('Can inte hitta python.exe')
             elif 'plugins' in step:
-                if not selected_plugins:
-                    messagebox.showinfo('Plugins', 'Du har inte valt någon plugin!')
-                    return
+                pass
+                # if not selected_plugins:
+                #     raise exceptions.NoPluginsSelected('Du måste ange eller flera plugins')
 
         self.project.select_plugins(selected_plugins)
 
@@ -183,13 +195,15 @@ class App(tk.Tk):
         if not file_path:
             return
         if not file_path.endswith('python.exe'):
-            self.log.warning('Not a valid python.exe file')
+            self.logger.warning('Not a valid python.exe file')
             messagebox.showwarning('Select python.exe', 'Not a valid python path!')
             return
         self.project.set_python_path(file_path)
         self.stringvar_python_path.set(self.project.python_exe)
 
     def _quit_toolbox(self):
+        for handler in self.logger.handlers:
+            handler.close()
         self.destroy()  # Closes window
         self.quit()  # Terminates program
 
