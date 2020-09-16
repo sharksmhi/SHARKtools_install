@@ -8,6 +8,7 @@ import sys
 import urllib.request
 import zipfile
 import urllib.request
+import platform
 
 from configparser import ConfigParser
 from pathlib import Path
@@ -140,7 +141,7 @@ class Project(object):
         self._run_batch_file(self.batch_file_create_venv)
 
         # Install python packages
-        self.install_packages()
+        # self.install_packages()
 
     def install_packages(self):
         """
@@ -154,11 +155,18 @@ class Project(object):
         with open(self.requirements_file_path) as fid:
             for line in fid:
                 sline = line.strip()
-                if sline.endswith('.whl'):
-                    # Copy file
-                    # TODO: Check bit version
-                    file_name = sline.split(' ')[-1]
-                    shutil.copy(Path('wheels', file_name), Path(self.wheels_directory, file_name))
+                if 'wheel' in sline:
+                    name = sline.split()[-1]
+                    source_path = self._get_wheel_source_file_path(name)
+                    if not source_path:
+                        self.logger.error(f'Could not get wheel for name {name}')
+                    else:
+                        shutil.copy(source_path, Path(self.wheels_directory, source_path.name))
+                # if sline.endswith('.whl'):
+                #     # Copy file
+                #     # TODO: Check bit version
+                #     file_name = sline.split(' ')[-1]
+                #     shutil.copy(Path('wheels', file_name), Path(self.wheels_directory, file_name))
 
         self._create_batch_install_requirements_file()
         
@@ -167,6 +175,14 @@ class Project(object):
             raise exceptions.MissingVenvException('Virtuell pythonmiljö saknas. Skapa en miljö innan du installerar paket!')
 
         self._run_batch_file(self.batch_file_install_requirements)
+
+    def _get_wheel_source_file_path(self, name):
+        directory = Path(Path(__file__).parent, 'wheels')
+        bit_version = platform.architecture()[0][:2]
+        for file_name in os.listdir(directory):
+            if name in file_name and bit_version in file_name:
+                return Path(directory, file_name)
+        return None
 
     def _create_requirements_file(self):
         """
@@ -181,21 +197,15 @@ class Project(object):
                     with open(file_path) as fid:
                         for line in fid:
                             module = line.strip()
-                            if module.startswith('#'):
-                                continue
-                                url = module.strip('#').strip()
-                                if url.startswith('https://raw'):
-                                    req_list = [item for item in self._get_requirements_list_from_url(url) if not item.startswith('#')]
-                                    lines.extend(req_list)
-                            elif module and module not in lines:
+                            if module and module not in lines:
                                 lines.append(module)
 
         # Remove duplicates
         keep_dict = {}
         for item in sorted(set(lines)):
             item = item.strip()
-            if item.startswith('#'):
-                continue
+            # if item.startswith('#'):
+            #     continue
             split_item = item.strip().split('==')
             pack = split_item[0]
             keep_dict.setdefault(pack, set())
@@ -285,6 +295,7 @@ class Project(object):
         lines.append(f'call {Path(self.venv_directory, "Scripts", "activate")}')
         lines.append(f'cd {self.program_directory}')
         lines.append(f'python main.py')
+        lines.append(f'pause')
         with open(self.batch_file_run_program, 'w') as fid:
             fid.write('\n'.join(lines))
 

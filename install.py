@@ -1,6 +1,8 @@
 
 import os
+import shutil
 import tkinter as tk
+from pathlib import Path
 from tkinter import filedialog
 from tkinter import messagebox
 from tkinter import ttk
@@ -141,7 +143,12 @@ class App(tk.Tk):
             messagebox.showinfo('Intallation klar!', 'Installationen verkar ha gått bra!')
         finally:
             self.button_continue.config(bg=self.bg_color, text='Installera')
+            self._copy_log_file()
 
+    def _copy_log_file(self):
+        source_file_path = Path(self.logger.handlers[0].baseFilename)
+        target_file_path = Path(self.project.install_history_directory, source_file_path.name)
+        shutil.copy(source_file_path, target_file_path)
 
     def _continue(self):
         """
