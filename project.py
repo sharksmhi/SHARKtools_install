@@ -23,7 +23,7 @@ class Project(object):
 
         self.python_exe = None
 
-        self.venv_name = 'venv_py36_sharktools'
+        self.venv_name = 'venv'
 
         self.available_plugins = []
         self.selected_plugins = []
@@ -60,7 +60,7 @@ class Project(object):
 
         self.wheels_directory = Path(self.directory, 'wheels')
         self.install_history_directory = Path(self.directory, 'install_history')
-        self.venv_directory = Path(self.directory, self.venv_name)
+        self.venv_directory = Path(self.program_directory, self.venv_name)
 
         self.temp_directory = Path(self.directory, '_temp_sharktools')
         self.temp_program_dir = Path(self.temp_directory, 'temp_program')
@@ -131,8 +131,7 @@ class Project(object):
         :return:
         """
         # Delete old environment
-        venv_dir = Path(self.directory, self.venv_name)
-        self._delete(venv_dir)
+        self._delete(self.venv_directory)
 
         # Create file
         self._create_batch_environment_file()
@@ -337,12 +336,12 @@ class Project(object):
 
         lines = []
 
-        disk = str(self.directory)[0]
+        disk = str(self.venv_directory.parent)[0]
         # Browse to disk
         lines.append(f'{disk}:')
 
         # Go to python environment directory
-        lines.append(f'cd {self.directory}')
+        lines.append(f'cd {self.venv_directory.parent}')
 
         # Create environment
         lines.append(f'call {self.python_exe} -m venv {self.venv_name}')
