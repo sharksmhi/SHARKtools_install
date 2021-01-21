@@ -2,6 +2,7 @@
 import os
 import shutil
 import tkinter as tk
+import urllib
 from pathlib import Path
 from tkinter import filedialog
 from tkinter import messagebox
@@ -44,7 +45,7 @@ class App(tk.Tk):
         self.labelframe_root_dir = tk.LabelFrame(self, text='Var vill du installera SHARKtools?')
         self.labelframe_root_dir.grid(row=0, column=0, **k)
 
-        self.labeleframe_python_path = tk.LabelFrame(self, text='Vilken är sökvägen till Python36?')
+        self.labeleframe_python_path = tk.LabelFrame(self, text='Vilken är sökvägen till python.exe?')
         self.labeleframe_python_path.grid(row=1, column=0, **k)
 
         self.labelframe_plugins = tk.LabelFrame(self, text='Vilka plugins vill du installera?', fg='red')
@@ -95,6 +96,10 @@ class App(tk.Tk):
             text = '<No python.exe found>'
         self.stringvar_python_path.set(text)
 
+        self.booleanvar_pipwin = tk.BooleanVar()
+        self.checkbutton_pipwin = tk.Checkbutton(frame, text='Använd pipwin', variable=self.booleanvar_pipwin)
+        self.checkbutton_pipwin.grid(row=2, column=0, sticky='w', padx=10, pady=5)
+
     def _set_labaleframe_plugins(self):
         frame = self.labelframe_plugins
         k = dict(padx=10,
@@ -135,6 +140,9 @@ class App(tk.Tk):
         except exceptions.CantRunProgramException as e:
             messagebox.showerror('SHARKtools är inte installerat korrekt!', e)
             self.stringvar_info.set('Något gick fel!')
+        except urllib.error.URLError:
+            messagebox.showerror('Du verkar inte vara uppkopplad på nätet!', e)
+            self.stringvar_info.set('Något gick fel!')
         except Exception as e:
             messagebox.showerror('Något gick fel!', e)
             self.stringvar_info.set('Något gick fel!')
@@ -163,7 +171,7 @@ class App(tk.Tk):
             if 'miljö' in step:
                 python_path = self.stringvar_python_path.get()
                 if not python_path or not os.path.exists(python_path):
-                    raise exceptions.NoPythonExeFound('Can inte hitta python.exe')
+                    raise exceptions.NoPythonExeFound('Kan inte hitta python.exe')
             elif 'plugins' in step:
                 pass
                 # if not selected_plugins:
@@ -183,7 +191,7 @@ class App(tk.Tk):
             text = ' '.join(words) + '...'
             self.stringvar_info.set(text)
             self.label_info.update_idletasks()
-            self.project.run_step(step)
+            self.project.run_step(step, use_pipwin=self.booleanvar_pipwin.get())
 
         self.button_continue.config(bg=self.bg_color, text='Installera')
 
@@ -198,7 +206,7 @@ class App(tk.Tk):
         self.stringvar_root_dir.set(self.project.directory)
 
     def _get_python_path(self):
-        file_path = filedialog.askopenfilename(filetypes=[('Python exicutable', '*.exe')])
+        file_path = filedialog.askopenfilename(filetypes=[('Python executable', '*.exe')])
         if not file_path:
             return
         if not file_path.endswith('python.exe'):

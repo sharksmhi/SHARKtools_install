@@ -76,7 +76,7 @@ class Project(object):
 
         self.requirements_file_path = Path(self.install_history_directory, 'requirements.txt')
 
-    def run_step(self, step):
+    def run_step(self, step, **kwargs):
         """
         Step matches keys in self.steps
         :param step: str
@@ -84,7 +84,7 @@ class Project(object):
         """
         func = self.steps.get(step)
         if func:
-            func()
+            func(**kwargs)
             return True
         return False
 
@@ -107,25 +107,25 @@ class Project(object):
         if not os.path.exists(self.install_history_directory):
             os.makedirs(self.install_history_directory)
 
-    def download_program(self):
+    def download_program(self, **kwargs):
         self._reset_directory(self.temp_program_dir)
         self._download_main_program_from_github()
         self._unzip_main_program()
         self._copy_main_program()
 
-    def download_plugins(self):
+    def download_plugins(self, **kwargs):
         self._reset_directory(self.temp_plugins_dir)
         self._download_plugins_from_github()
         self._unzip_plugins()
         self._copy_plugins()
 
-    def download_packages(self):
+    def download_packages(self, **kwargs):
         self._reset_directory(self.temp_packages_dir)
         self._download_packages_from_github()
         self._unzip_packages()
         self._copy_packages()
 
-    def create_environment(self):
+    def create_environment(self, **kwargs):
         """
         Create a batch file and run it to create a virtual environment.
         :return:
@@ -142,20 +142,23 @@ class Project(object):
         # Install python packages
         # self.install_packages()
 
-    def install_packages(self):
+    def install_packages(self, use_pipwin=False, **kwargs):
         """
         Installs packages in self.requirements_file_path into the virtual environment.
         Also installs pyproj and basemap if found in file.
         :return:
         """
-        self._create_requirements_file()
+        if use_pipwin:
+            self._create_requirements_file_pipwin()
+        else:
+            self._create_requirements_file()
         self._reset_directory(self.wheels_directory)
         # First check for wheel files
         with open(self.requirements_file_path) as fid:
             for line in fid:
                 sline = line.strip()
                 if 'wheel' in sline:
-                    name = sline.split()[-1]
+                    name = sline.strip('#').strip().split()[0]
                     source_path = self._get_wheel_source_file_path(name)
                     if not source_path:
                         self.logger.error(f'Could not get wheel for name {name}')
@@ -167,7 +170,10 @@ class Project(object):
                 #     file_name = sline.split(' ')[-1]
                 #     shutil.copy(Path('wheels', file_name), Path(self.wheels_directory, file_name))
 
-        self._create_batch_install_requirements_file()
+        if use_pipwin:
+            self._create_batch_install_requirements_file_pipwin()
+        else:
+            self._create_batch_install_requirements_file()
         
         if not os.path.exists(self.venv_directory):
             self.logger.error('No venv found')
@@ -176,7 +182,11 @@ class Project(object):
         self._run_batch_file(self.batch_file_install_requirements)
 
     def _get_wheel_source_file_path(self, name):
-        directory = Path(Path(__file__).parent, 'wheels')
+        # directory = Path(Path(__file__).parent, 'wheels')
+        directory = Path('wheels').absolute()
+        # print('\n'*5)
+        # print('='*30)
+        # print('DIRECTORY', directory)
         bit_version = platform.architecture()[0][:2]
         for file_name in os.listdir(directory):
             if name in file_name and bit_version in file_name:
@@ -220,6 +230,61 @@ class Project(object):
         # Write to file
         with open(self.requirements_file_path, 'w') as fid:
             fid.write('\n'.join(sorted(set(keep_list), reverse=True)))  # reverse to have the -e lines last
+
+    def _create_requirements_file_pipwin(self):
+        """
+        Look for requirement files and stores valid lines in self.requirements_file_path
+        :return:
+        """
+        lines = {} # Is sorted by default
+        for root, dirs, files in os.walk(self.program_directory, topdown=False):
+            for name in files:
+                if name == 'requirements.txt':
+                    file_path = Path(root, name)
+                    print(file_path)
+                    with open(file_path) as fid:
+                        for line in fid:
+                            line = line.strip()
+                            if not line:
+                                continue
+                            if line.startswith('# '):
+                                continue
+                            module = line
+                            module_name = module
+                            wheel = False
+                            module_nr = 0
+                            if line.startswith('#wheel'):
+                                wheel = True
+                                module = module.split(' ')[1]
+                                module_name = module
+                            if '==' in module:
+                                module_name, module_nr = module.split('==')
+                                module_nr = int(module_nr.replace('.', ''))
+                            if module_name not in lines:
+                                print('0', module_name)
+                                lines[module_name] = dict(text=f'{line} # ::: {file_path}',
+                                                          nr=module_nr,
+                                                          wheel=wheel)
+                            else:
+                                if not wheel and lines[module_name]['wheel']:
+                                    print('1', module_name)
+                                    continue
+                                if wheel and not lines[module_name]['wheel']:
+                                    print('2', module_name)
+                                    lines[module_name] = dict(text=f'{line} # ::: {file_path}',
+                                                              nr=module_nr,
+                                                              wheel=wheel)
+                                    continue
+                                if module_nr > lines[module_name]['nr']:
+                                    print('3', module_name)
+                                    lines[module_name] = dict(text=f'{line} # ::: {file_path}',
+                                                              nr=module_nr,
+                                                              wheel=wheel)
+                                    continue
+
+        # Write to file
+        with open(self.requirements_file_path, 'w') as fid:
+            fid.write('\n'.join([lines[key]['text'] for key in lines]))
 
     def _get_requirements_list_from_url(self, url):
         try:
@@ -275,7 +340,7 @@ class Project(object):
             self.logger.info(f'Package {package} copied to {target_dir}')
             self.copied_packages.append(package)
 
-    def create_run_program_file(self):
+    def create_run_program_file(self, **kwargs):
         """
         Creates a batch file that can be used to run the program.
         :return:
@@ -323,6 +388,43 @@ class Project(object):
 
         # Add requirements file
         lines.append(f'pip install -r {self.requirements_file_path}')
+
+        with open(self.batch_file_install_requirements, 'w') as fid:
+            fid.write('\n'.join(lines))
+
+    def _create_batch_install_requirements_file_pipwin(self):
+        """
+        Creates a batch file that installs packages to the virtual environment.
+        :return:
+        """
+        lines = []
+        env_activate_path = Path(self.venv_directory, 'Scripts', 'activate')
+        lines.append(f'call {env_activate_path}')
+
+        lines.append('python -m pip install --upgrade pip')
+
+        lines.append('')
+        lines.append('pip install wheel')
+        lines.append('pip install pipwin')
+
+        with open(self.requirements_file_path) as fid:
+            for line in fid:
+                line = line.strip()
+                if line.startswith('#wheel'):
+                    pack = line.split(' ')[1]
+                    lines.append(f'pipwin install {pack}')
+
+        # Add requirements file
+        lines.append('')
+        lines.append(f'pip install -r {self.requirements_file_path}')
+        lines.append('')
+
+        with open(self.requirements_file_path) as fid:
+            for line in fid:
+                line = line.strip()
+                if line.startswith('#reinstall'):
+                    pack = line.split(' ')[1]
+                    lines.append(f'pip install {pack}')
 
         with open(self.batch_file_install_requirements, 'w') as fid:
             fid.write('\n'.join(lines))
