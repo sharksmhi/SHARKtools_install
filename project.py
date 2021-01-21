@@ -1,5 +1,4 @@
 import collections
-import datetime
 import os
 import re
 import shutil
@@ -149,37 +148,36 @@ class Project(object):
         :return:
         """
         if use_pipwin:
+            self.logger.debug('Using pipwin')
             self._create_requirements_file_pipwin()
-        else:
-            self._create_requirements_file()
-        self._reset_directory(self.wheels_directory)
-        # First check for wheel files
-        with open(self.requirements_file_path) as fid:
-            for line in fid:
-                sline = line.strip()
-                if 'wheel' in sline:
-                    name = sline.strip('#').strip().split()[0]
-                    source_path = self._get_wheel_source_file_path(name)
-                    if not source_path:
-                        self.logger.error(f'Could not get wheel for name {name}')
-                    else:
-                        shutil.copy(source_path, Path(self.wheels_directory, source_path.name))
-                # if sline.endswith('.whl'):
-                #     # Copy file
-                #     # TODO: Check bit version
-                #     file_name = sline.split(' ')[-1]
-                #     shutil.copy(Path('wheels', file_name), Path(self.wheels_directory, file_name))
-
-        if use_pipwin:
             self._create_batch_install_requirements_file_pipwin()
         else:
+            self._create_requirements_file()
+            self._reset_directory(self.wheels_directory)
+            # First check for wheel files
+            with open(self.requirements_file_path) as fid:
+                for line in fid:
+                    sline = line.strip()
+                    if 'wheel' in sline:
+                        name = sline.strip('#').strip().split()[0]
+                        source_path = self._get_wheel_source_file_path(name)
+                        if not source_path:
+                            self.logger.error(f'Could not get wheel for name {name}')
+                        else:
+                            shutil.copy(source_path, Path(self.wheels_directory, source_path.name))
+                    # if sline.endswith('.whl'):
+                    #     # Copy file
+                    #     # TODO: Check bit version
+                    #     file_name = sline.split(' ')[-1]
+                    #     shutil.copy(Path('wheels', file_name), Path(self.wheels_directory, file_name))
+
             self._create_batch_install_requirements_file()
         
         if not os.path.exists(self.venv_directory):
             self.logger.error('No venv found')
             raise exceptions.MissingVenvException('Virtuell pythonmiljö saknas. Skapa en miljö innan du installerar paket!')
-
-        self._run_batch_file(self.batch_file_install_requirements)
+        if not use_pipwin:
+            self._run_batch_file(self.batch_file_install_requirements)
 
     def _get_wheel_source_file_path(self, name):
         # directory = Path(Path(__file__).parent, 'wheels')
@@ -262,22 +260,19 @@ class Project(object):
                                 module_nr = int(module_nr.replace('.', ''))
                             if module_name not in lines:
                                 print('0', module_name)
-                                lines[module_name] = dict(text=f'{line} # ::: {file_path}',
+                                lines[module_name] = dict(text=f'{line} \t# {file_path}',
                                                           nr=module_nr,
                                                           wheel=wheel)
                             else:
                                 if not wheel and lines[module_name]['wheel']:
-                                    print('1', module_name)
                                     continue
                                 if wheel and not lines[module_name]['wheel']:
-                                    print('2', module_name)
-                                    lines[module_name] = dict(text=f'{line} # ::: {file_path}',
+                                    lines[module_name] = dict(text=f'{line} \t# {file_path}',
                                                               nr=module_nr,
                                                               wheel=wheel)
                                     continue
                                 if module_nr > lines[module_name]['nr']:
-                                    print('3', module_name)
-                                    lines[module_name] = dict(text=f'{line} # ::: {file_path}',
+                                    lines[module_name] = dict(text=f'{line} \t# {file_path}',
                                                               nr=module_nr,
                                                               wheel=wheel)
                                     continue
@@ -389,6 +384,13 @@ class Project(object):
         # Add requirements file
         lines.append(f'pip install -r {self.requirements_file_path}')
 
+        with open(self.requirements_file_path) as fid:
+            for line in fid:
+                line = line.strip()
+                if line.startswith('#reinstall'):
+                    pack = line.split(' ')[1]
+                    lines.append(f'pip install --upgrade --force-reinstall {pack}')
+
         with open(self.batch_file_install_requirements, 'w') as fid:
             fid.write('\n'.join(lines))
 
@@ -417,14 +419,14 @@ class Project(object):
         # Add requirements file
         lines.append('')
         lines.append(f'pip install -r {self.requirements_file_path}')
-        lines.append('')
 
+        lines.append('')
         with open(self.requirements_file_path) as fid:
             for line in fid:
                 line = line.strip()
                 if line.startswith('#reinstall'):
                     pack = line.split(' ')[1]
-                    lines.append(f'pip install {pack}')
+                    lines.append(f'pip install --upgrade --force-reinstall {pack}')
 
         with open(self.batch_file_install_requirements, 'w') as fid:
             fid.write('\n'.join(lines))

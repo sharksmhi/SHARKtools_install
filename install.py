@@ -7,6 +7,7 @@ from pathlib import Path
 from tkinter import filedialog
 from tkinter import messagebox
 from tkinter import ttk
+import traceback
 
 import exceptions
 from project import Project
@@ -129,22 +130,22 @@ class App(tk.Tk):
         try:
             self._continue()
         except exceptions.MissingVenvException as e:
-            messagebox.showerror('Pythonmiljö saknas!', e)
+            messagebox.showerror('Pythonmiljö saknas!', traceback.format_exc())
             self.stringvar_info.set('Något gick fel!')
         except exceptions.NoPluginsSelected as e:
-            messagebox.showerror('Du har inte valt någon plugin!', e)
+            messagebox.showerror('Du har inte valt någon plugin!', traceback.format_exc())
             self.stringvar_info.set('Något gick fel!')
         except exceptions.NoPythonExeFound as e:
-            messagebox.showerror('Kan inte hitta python.exe!!', e)
+            messagebox.showerror('Kan inte hitta python.exe!!', traceback.format_exc())
             self.stringvar_info.set('Något gick fel!')
         except exceptions.CantRunProgramException as e:
-            messagebox.showerror('SHARKtools är inte installerat korrekt!', e)
+            messagebox.showerror('SHARKtools är inte installerat korrekt!', traceback.format_exc())
             self.stringvar_info.set('Något gick fel!')
         except urllib.error.URLError:
-            messagebox.showerror('Du verkar inte vara uppkopplad på nätet!', e)
+            messagebox.showerror('Du verkar inte vara uppkopplad på nätet!', traceback.format_exc())
             self.stringvar_info.set('Något gick fel!')
         except Exception as e:
-            messagebox.showerror('Något gick fel!', e)
+            messagebox.showerror('Något gick fel!', traceback.format_exc())
             self.stringvar_info.set('Något gick fel!')
             raise Exception
         else:
@@ -197,6 +198,10 @@ class App(tk.Tk):
 
         self.label_info.config(fg='green')
         self.stringvar_info.set('KLART!')
+
+        if self.booleanvar_pipwin.get() and any(['requirements' in step for step in steps_to_run]):
+            messagebox.showwarning('Installation är nästan klar...',
+                                   f'För att slutföra installationen behöver du köra (dubbelklicka på) filen {self.project.batch_file_install_requirements}')
 
     def _get_root_dir(self):
         directory = filedialog.askdirectory()
