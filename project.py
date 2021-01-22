@@ -14,6 +14,12 @@ from pathlib import Path
 
 import exceptions
 
+if getattr(sys, 'frozen', False):
+    # THIS_FILE_PATH = Path(os.path.dirname(sys.executable))
+    THIS_FILE_PATH = Path(sys.executable)
+elif __file__:
+    THIS_FILE_PATH = Path(__file__)
+
 
 class Project(object):
     def __init__(self, logger=None):
@@ -58,6 +64,9 @@ class Project(object):
         self.plugins_directory = Path(self.program_directory, 'plugins')
 
         self.wheels_directory = Path(self.directory, 'wheels')
+        self.wheels_source_directory = Path(THIS_FILE_PATH.parent, 'wheels')
+        self.smhi_packages_config_file = Path(THIS_FILE_PATH.parent, 'sharksmhi_packages.ini')
+
         self.install_history_directory = Path(self.directory, 'install_history')
         self.venv_directory = Path(self.program_directory, self.venv_name)
 
@@ -83,9 +92,8 @@ class Project(object):
         """
         func = self.steps.get(step)
         if func:
-            func(**kwargs)
-            return True
-        return False
+            all_ok = func(**kwargs)
+            return all_ok
 
     def setup_project(self):
         """
@@ -147,11 +155,15 @@ class Project(object):
         Also installs pyproj and basemap if found in file.
         :return:
         """
+        all_ok = True
+        copied_files = []
         if use_pipwin:
             self.logger.debug('Using pipwin')
             self._create_requirements_file_pipwin()
             self._create_batch_install_requirements_file_pipwin()
         else:
+            if not self.wheels_source_directory.exists():
+                os.makedirs(self.wheels_source_directory)
             self._create_requirements_file()
             self._reset_directory(self.wheels_directory)
             # First check for wheel files
@@ -159,12 +171,16 @@ class Project(object):
                 for line in fid:
                     sline = line.strip()
                     if 'wheel' in sline:
-                        name = sline.strip('#').strip().split()[0]
+                        name = sline.strip('#').strip().split()[1]
                         source_path = self._get_wheel_source_file_path(name)
                         if not source_path:
                             self.logger.error(f'Could not get wheel for name {name}')
+                            all_ok = False
                         else:
-                            shutil.copy(source_path, Path(self.wheels_directory, source_path.name))
+                            if source_path not in copied_files:
+                                shutil.copy(source_path, Path(self.wheels_directory, source_path.name))
+                                copied_files.append(source_path)
+
                     # if sline.endswith('.whl'):
                     #     # Copy file
                     #     # TODO: Check bit version
@@ -179,16 +195,13 @@ class Project(object):
         if not use_pipwin:
             self._run_batch_file(self.batch_file_install_requirements)
 
+        return all_ok
+
     def _get_wheel_source_file_path(self, name):
-        # directory = Path(Path(__file__).parent, 'wheels')
-        directory = Path('wheels').absolute()
-        # print('\n'*5)
-        # print('='*30)
-        # print('DIRECTORY', directory)
         bit_version = platform.architecture()[0][:2]
-        for file_name in os.listdir(directory):
+        for file_name in os.listdir(self.wheels_source_directory):
             if name in file_name and bit_version in file_name:
-                return Path(directory, file_name)
+                return Path(self.wheels_source_directory, file_name)
         return None
 
     def _create_requirements_file(self):
@@ -293,7 +306,9 @@ class Project(object):
     def _get_packages_to_download_from_github(self):
         to_download = {}
         parser = ConfigParser()
-        parser.read('sharksmhi_packages.ini')
+        if not self.smhi_packages_config_file.exists():
+            raise FileNotFoundError(self.smhi_packages_config_file)
+        parser.read(str(self.smhi_packages_config_file))
         plugin_list = ['ALL'] + self.selected_plugins
         for plugin in parser.sections(): 
             if plugin not in plugin_list:

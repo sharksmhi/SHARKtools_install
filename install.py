@@ -1,5 +1,6 @@
 
 import os
+import sys
 import shutil
 import tkinter as tk
 import urllib
@@ -16,13 +17,27 @@ import logging
 import logging.config
 import logging.handlers
 
+if getattr(sys, 'frozen', False):
+    # THIS_FILE_PATH = Path(os.path.dirname(sys.executable))
+    THIS_FILE_PATH = Path(sys.executable)
+elif __file__:
+    THIS_FILE_PATH = Path(__file__)
+
 
 class App(tk.Tk):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        logging.config.fileConfig('logging.conf')
-        self.logger = logging.getLogger('timedrotating')
+        self.logger = None
+        # self.logging_level = 'WARNING'
+        self.logging_level = 'DEBUG'
+        self.logging_format = '%(asctime)s [%(levelname)10s]    %(pathname)s [%(lineno)d] => %(funcName)s():    %(message)s'
+        self._setup_logger()
+
+        self.logger.info('==== START ====')
+
+        # logging.config.fileConfig('logging.conf')
+        # self.logger = logging.getLogger('timedrotating')
 
         self.protocol(u'WM_DELETE_WINDOW', self._quit_toolbox)
 
@@ -38,6 +53,19 @@ class App(tk.Tk):
         self._set_labeleframe_python_path()
         self._set_labaleframe_plugins()
         self._set_labaleframe_steps()
+
+    def _setup_logger(self, **kwargs):
+        name = Path(__file__).stem
+        self.logger = logging.getLogger(name)
+        self.logger.setLevel(self.logging_level)
+        directory = Path(THIS_FILE_PATH.parent, 'log')
+        if not directory.exists():
+            os.makedirs(directory)
+        file_path = Path(directory, 'install.log')
+        handler = logging.handlers.TimedRotatingFileHandler(str(file_path), when='D', interval=1, backupCount=7)
+        formatter = logging.Formatter(self.logging_format)
+        handler.setFormatter(formatter)
+        self.logger.addHandler(handler)
 
     def _set_frame(self):
         k = dict(padx=10,
@@ -127,8 +155,12 @@ class App(tk.Tk):
                                               **k)
 
     def _run_steps(self):
+        all_ok = False
         try:
-            self._continue()
+            all_ok = self._continue()
+        except FileNotFoundError as e:
+            messagebox.showerror('Fil saknas!', traceback.format_exc())
+            self.stringvar_info.set('Något gick fel!')
         except exceptions.MissingVenvException as e:
             messagebox.showerror('Pythonmiljö saknas!', traceback.format_exc())
             self.stringvar_info.set('Något gick fel!')
@@ -149,7 +181,11 @@ class App(tk.Tk):
             self.stringvar_info.set('Något gick fel!')
             raise Exception
         else:
-            messagebox.showinfo('Intallation klar!', 'Installationen verkar ha gått bra!')
+            if all_ok is False:
+                messagebox.showerror('Allt gick inte att installera', 'Se log/install.log för att se vad som gick fel!')
+                self.stringvar_info.set('Allt kunde inte installeras!!')
+            else:
+                messagebox.showinfo('Intallation klar!', 'Installationen verkar ha gått bra!')
         finally:
             self.button_continue.config(bg=self.bg_color, text='Installera')
             self._copy_log_file()
@@ -164,6 +200,7 @@ class App(tk.Tk):
         Makes some checks and runs all steps.
         :return:
         """
+        all_ok = True
         steps_to_run = self.steps_widget.get_checked_item_list()
 
         # Add plugins
@@ -192,7 +229,9 @@ class App(tk.Tk):
             text = ' '.join(words) + '...'
             self.stringvar_info.set(text)
             self.label_info.update_idletasks()
-            self.project.run_step(step, use_pipwin=self.booleanvar_pipwin.get())
+            ok = self.project.run_step(step, use_pipwin=self.booleanvar_pipwin.get())
+            if ok is False:
+                all_ok = False
 
         self.button_continue.config(bg=self.bg_color, text='Installera')
 
@@ -202,6 +241,7 @@ class App(tk.Tk):
         if self.booleanvar_pipwin.get() and any(['requirements' in step for step in steps_to_run]):
             messagebox.showwarning('Installation är nästan klar...',
                                    f'För att slutföra installationen behöver du köra (dubbelklicka på) filen {self.project.batch_file_install_requirements}')
+        return all_ok
 
     def _get_root_dir(self):
         directory = filedialog.askdirectory()
@@ -472,5 +512,6 @@ def grid_configure(frame, rows={}, columns={}):
 
 
 if __name__ == '__main__':
+    print('THIS_FILE_PATH:', THIS_FILE_PATH)
     app = App()
     app.mainloop()

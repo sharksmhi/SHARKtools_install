@@ -1,4 +1,5 @@
 venv/
+install/
 
 .idea
 .ipynb_checkpoints
