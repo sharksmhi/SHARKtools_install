@@ -1,0 +1,25 @@
+ALL:
+- sharkpylib = https://github.com/sharksmhi/sharkpylib/zipball/master/
+
+SHARKtools_algawar:
+- ctdpy = https://github.com/sharksmhi/ctdpy/zipball/master/
+- algaware = https://github.com/sharksmhi/algaware/zipball/master/
+
+SHARKtools_svea_ctd:
+- svea = https://github.com/sharksmhi/svea/zipball/master/
+- sharkpylib = https://github.com/sharksmhi/sharkpylib/zipball/master/
+- ctdpy = https://github.com/sharksmhi/ctdpy/zipball/master/
+- ctdvis = https://github.com/sharksmhi/ctdvis/zipball/master/
+- ctd_processing = https://github.com/sharksmhi/ctd_processing/zipball/master/
+
+SHARKtools_pre_system_Svea:
+- sharkpylib = https://github.com/sharksmhi/sharkpylib/zipball/master/
+- ctdpy = https://github.com/sharksmhi/ctdpy/zipball/master/
+- pre_system_svea = https://github.com/sharksmhi/pre_system_svea/zipball/main/
+- svepa = https://github.com/sharksmhi/svepa/zipball/master/
+
+SHARKtools_ctd_processing:
+- sharkpylib = https://github.com/sharksmhi/sharkpylib/zipball/master/
+- ctdpy = https://github.com/sharksmhi/ctdpy/zipball/master/
+- ctd_processing = https://github.com/sharksmhi/ctd_processing/zipball/master/
+

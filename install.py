@@ -120,14 +120,14 @@ class App(tk.Tk):
         self.stringvar_python_path = tk.StringVar()
         self.label_python_path = tk.Label(frame, textvariable=self.stringvar_python_path)
         self.label_python_path.grid(row=1, column=0, **k)
-        text = self.project.python_exe
-        if self.project.python_exe is None:
+        text = self.project.get_python_path()
+        if not text:
             text = '<No python.exe found>'
         self.stringvar_python_path.set(text)
 
-        self.booleanvar_pipwin = tk.BooleanVar()
-        self.checkbutton_pipwin = tk.Checkbutton(frame, text='Använd pipwin', variable=self.booleanvar_pipwin)
-        self.checkbutton_pipwin.grid(row=2, column=0, sticky='w', padx=10, pady=5)
+        self.booleanvar_git = tk.BooleanVar()
+        self.checkbutton_git = tk.Checkbutton(frame, text='Använd GIT', variable=self.booleanvar_git)
+        self.checkbutton_git.grid(row=2, column=0, sticky='w', padx=10, pady=5)
 
     def _set_labaleframe_plugins(self):
         frame = self.labelframe_plugins
@@ -179,7 +179,7 @@ class App(tk.Tk):
         except Exception as e:
             messagebox.showerror('Något gick fel!', traceback.format_exc())
             self.stringvar_info.set('Något gick fel!')
-            raise Exception
+            raise
         else:
             if all_ok is False:
                 messagebox.showerror('Allt gick inte att installera', 'Se log/install.log för att se vad som gick fel!')
@@ -202,6 +202,9 @@ class App(tk.Tk):
         """
         all_ok = True
         steps_to_run = self.steps_widget.get_checked_item_list()
+        if not self.stringvar_python_path.get():
+            return False
+        self.project.set_python_path(self.stringvar_python_path.get())
 
         # Add plugins
         selected_plugins = [plugin for plugin in self.boolvars_plugins if self.boolvars_plugins[plugin].get()]
@@ -229,7 +232,8 @@ class App(tk.Tk):
             text = ' '.join(words) + '...'
             self.stringvar_info.set(text)
             self.label_info.update_idletasks()
-            ok = self.project.run_step(step, use_pipwin=self.booleanvar_pipwin.get())
+            ok = self.project.run_step(step, use_git=self.booleanvar_git.get())
+            # ok = self.project.run_step(step)
             if ok is False:
                 all_ok = False
 
@@ -238,9 +242,9 @@ class App(tk.Tk):
         self.label_info.config(fg='green')
         self.stringvar_info.set('KLART!')
 
-        if self.booleanvar_pipwin.get() and any(['requirements' in step for step in steps_to_run]):
-            messagebox.showwarning('Installation är nästan klar...',
-                                   f'För att slutföra installationen behöver du köra (dubbelklicka på) filen {self.project.batch_file_install_requirements}')
+        # if self.booleanvar_pipwin.get() and any(['requirements' in step for step in steps_to_run]):
+        #     messagebox.showwarning('Installation är nästan klar...',
+        #                            f'För att slutföra installationen behöver du köra (dubbelklicka på) filen {self.project.batch_file_install_requirements}')
         return all_ok
 
     def _get_root_dir(self):
@@ -509,7 +513,6 @@ def grid_configure(frame, rows={}, columns={}):
             frame.grid_columnconfigure(c, weight=columns[c])
         else:
             frame.grid_columnconfigure(c, weight=1)
-
 
 if __name__ == '__main__':
     print('THIS_FILE_PATH:', THIS_FILE_PATH)
