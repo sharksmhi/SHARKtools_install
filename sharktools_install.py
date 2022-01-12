@@ -263,7 +263,7 @@ class App(tk.Tk):
             messagebox.showwarning('Select python.exe', 'Not a valid python path!')
             return
         self.project.set_python_path(file_path)
-        self.stringvar_python_path.set(self.project.python_exe)
+        self.stringvar_python_path.set(self.project.get_python_path())
 
     def _quit_toolbox(self):
         for handler in self.logger.handlers:

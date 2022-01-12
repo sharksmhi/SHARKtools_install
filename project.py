@@ -44,6 +44,7 @@ class Project(object):
         self.selected_plugins = []
 
         self.copied_packages = []
+        self.wheels_to_install = []
 
         self.steps = collections.OrderedDict({'Ladda ner programmet': self.download_program,
                                               'Ladda ner plugins': self.download_plugins,
@@ -103,11 +104,13 @@ class Project(object):
 
         self.batch_file_create_venv = Path(self.install_history_directory, 'create_venv.bat')
         self.batch_file_install_requirements = Path(self.install_history_directory, 'install_requirements.bat')
+        self.batch_file_install_wheel = Path(self.install_history_directory, 'install_wheel.bat')
         self.batch_file_run_program = Path(self.directory, 'run_program.bat')
 
         self.log_file_path = Path(self.install_history_directory, 'install.log')
 
         self.requirements_file_path = Path(self.install_history_directory, 'requirements.txt')
+        self.requirements_file_path_temp = Path(self.install_history_directory, 'temp_requirements.txt')
 
         self.git_root_url = 'https://github.com/sharksmhi/'
 
@@ -278,6 +281,7 @@ class Project(object):
         self._create_requirements_file()
         self._create_batch_install_requirements_file()
 
+        self._install_wheels()
         self._run_batch_file(self.batch_file_install_requirements)
 
         self._create_pth_file()
@@ -302,7 +306,8 @@ class Project(object):
         path = self._get_wheel_path_for_package(package)
         if not path:
             return
-        return f'./{path.relative_to(self.install_history_directory)}'.replace('\\', '/')
+        return str(path).replace('\\', '/')
+        # return f'./{path.relative_to(self.install_history_directory)}'.replace('\\', '/')
 
     def _get_wheel_path_for_package(self, package):
         if not self.install_history_directory:
@@ -353,16 +358,16 @@ class Project(object):
             os.makedirs(self.wheels_directory)
         shutil.copy2(str(source_path), str(target_path))
 
-    def _create_requirements_file(self, use_git=False):
+    def _create_requirements_file(self):
         """
         Look for requirement files and stores valid lines in self.requirements_file_path
         :return:
         """
+        self.wheels_to_install = []
         local_packages = [path.name for path in self.package_directory.iterdir()]
-
         lines = []
         if 'ctdpy' in local_packages:
-            lines.extend(['shapely', 'gdal', 'fiona', 'six', 'rtree', 'geopandas'])
+            lines.extend(['six', 'shapely', 'rtree', 'gdal', 'fiona', 'geopandas'])
 
         for root, dirs, files in os.walk(self.package_directory, topdown=False):
             for name in files:
@@ -373,12 +378,13 @@ class Project(object):
                             module = line.strip()
                             if module.startswith('#'):
                                 continue
+                            if 'xlrd' in module and self._python_version == '36':
+                                module = 'xlrd==1.2'
                             if module and module not in lines:
                                 lines.append(module)
-
         # Remove duplicates
         keep_dict = {}
-        for item in set(lines):
+        for item in lines:
             item = item.strip()
             # if item.startswith('#'):
             #     continue
@@ -400,7 +406,8 @@ class Project(object):
                 self._copy_wheel_to_local(source_wheel_path)
             wheel_path = self._get_wheel_rel_path_for_package(pack)
             if wheel_path:
-                keep_wheel_list.append(wheel_path)
+                self.wheels_to_install.append(wheel_path)
+                keep_wheel_list.append('# ' + wheel_path)
             else:
                 if len(value) == 1:
                     keep_pip_list.append(list(value)[0])
@@ -491,6 +498,7 @@ class Project(object):
             self._download_package_from_github(pack, url)
 
     def _download_package_from_github(self, package, url):
+        self._check_path(self.temp_packages_dir)
         urllib.request.urlretrieve(url, r'{}/{}.zip'.format(self.temp_packages_dir, package))
 
     def _copy_packages(self):
@@ -550,27 +558,8 @@ class Project(object):
 
         lines.append('python -m pip install --upgrade pip')
 
-        # wheel_files = os.listdir(self.wheels_directory)
-        #
-        # # Look for pyproj
-        # for file_name in wheel_files[:]:
-        #     if 'pyproj' in file_name:
-        #         lines.append(f'pip install {Path(self.wheels_directory, file_name)}')
-        #         wheel_files.pop(wheel_files.index(file_name))
-        #
-        # # Install the rest
-        # for file_name in wheel_files:
-        #     lines.append(f'pip install {Path(self.wheels_directory, file_name)}')
-
         # Add requirements file
         lines.append(f'pip install -r {self.requirements_file_path}')
-
-        # with open(self.requirements_file_path) as fid:
-        #     for line in fid:
-        #         line = line.strip()
-        #         if line.startswith('#reinstall'):
-        #             pack = line.split(' ')[1]
-        #             lines.append(f'pip install --upgrade --force-reinstall {pack}')
 
         with open(self.batch_file_install_requirements, 'w') as fid:
             fid.write('\n'.join(lines))
@@ -655,8 +644,18 @@ class Project(object):
             self.logger.error('Not a valid python!')
             raise FileNotFoundError
         self._python_path = python_exe
-        self._python_version = ''.join([s for s in list(str(self._python_path.parent.name)) if s in string.digits + '-'])
+        # self._python_version = ''.join([s for s in list(str(self._python_path.parent.name)) if s in string.digits + '-'][:2])
+        self._find_python_version_from_python_directory(self._python_path.parent)
         self._save_python_path()
+
+    def _find_python_version_from_python_directory(self, directory):
+        for path in Path(directory).iterdir():
+            if 'python' in path.name and path.suffix == '.dll':
+                digits = ''.join([s for s in list(str(path.parent.name)) if s in string.digits + '-'])
+                if len(digits) == 2:
+                    self._python_version = digits
+                    return
+        return False
 
     def get_python_path(self):
         return self._python_path
@@ -673,13 +672,13 @@ class Project(object):
         except:
             self._load_plugins()
 
-    def _find_python_exe(self, root_folder='C:/'):
+    def _find_python_exe(self):
         self._python_path = None
         if self._load_python_path():
             return True
 
         for path in sorted(sys.path):
-            if 'python36' in path.lower():
+            if 'python' in path.lower():
                 file_list = os.listdir(path)
                 for file_name in file_list:
                     if file_name == 'python.exe':
@@ -735,11 +734,19 @@ class Project(object):
 
         # Plugins
         for plugin in self.selected_plugins:
-            url = r'https://github.com/sharksmhi/{}/zipball/main/'.format(plugin)
-            item = r'{}/{}.zip'.format(self.temp_plugins_dir, plugin)
-            print('url', url)
-            print('item', item)
-            urllib.request.urlretrieve(url, item)
+            try:
+                url = r'https://github.com/sharksmhi/{}/zipball/main/'.format(plugin)
+                item = r'{}/{}.zip'.format(self.temp_plugins_dir, plugin)
+                print('url', url)
+                print('item', item)
+                urllib.request.urlretrieve(url, item)
+            except:
+                url = r'https://github.com/sharksmhi/{}/zipball/master/'.format(plugin)
+                item = r'{}/{}.zip'.format(self.temp_plugins_dir, plugin)
+                print('url', url)
+                print('item', item)
+                urllib.request.urlretrieve(url, item)
+
 
     # def _unzip_files(self):
     #     # Unzip
@@ -851,11 +858,31 @@ class Project(object):
         subprocess.run(str(file_path))
         return True
 
+    def _create_install_wheel_bat_file(self, path):
+        lines = []
+        env_activate_path = Path(self.venv_directory, 'Scripts', 'activate')
+        lines.append(f'call {env_activate_path}')
+
+        lines.append('python -m pip install --upgrade pip')
+
+        # Add requirements file
+        lines.append(f'pip install {path}')
+        with open(self.batch_file_install_wheel, 'w') as fid:
+            fid.write('\n'.join(lines))
+
+    def _install_wheels(self):
+        for path in self.wheels_to_install:
+            self._create_install_wheel_bat_file(path)
+            self._run_batch_file(self.batch_file_install_wheel)
+
     def _check_path(self, path):
-        if 'SHARKtools' in str(path):
-            return True
-        self.logger.error(f'Not a valid path: {path}')
-        raise Exception
+        path = Path(path)
+        if 'SHARKtools' not in str(path):
+            self.logger.error(f'Not a valid path: {path}')
+            raise Exception
+        if not path.exists() and '.' not in path.name:
+            os.makedirs(path)
+        return True
 
     def _delete(self, path):
         """
@@ -863,6 +890,7 @@ class Project(object):
         :param path:
         :return:
         """
+        print('Deleting:', path)
         if os.path.exists(path) and self._check_path(path):
             if os.path.isfile(path):
                 os.remove(path)
@@ -897,7 +925,7 @@ if __name__ == '__main__':
     # p.download_program()
     # p.download_plugins()
     # p.download_packages()
-    p.set_python_path(r'C:\Python36/python.exe')
+    p.set_python_path(r'C:\Python38/python.exe')
     # p.create_environment()
     # p.install_packages()
     # p.install_packages()
