@@ -1,0 +1,54 @@
+path_to_python: "C:/Python38/python.exe"
+
+install_root_directory: "C:/SHARKtools_git"
+
+# Will be located under install_root_directory if path is not absolute
+virtual_environment_path: "venv"
+
+repos:
+  - "https://github.com/sharksmhi/SHARKtools.git"
+  - ["SHARKtools/plugins", "https://github.com/sharksmhi/SHARKtools_pre_system_Svea.git"]
+  - ["SHARKtools/plugins", "https://github.com/sharksmhi/SHARKtools_ctd_processing.git"]
+  - "https://github.com/sharksmhi/ctd_processing.git"
+  - "https://github.com/sharksmhi/ctdpy.git"
+  - "https://github.com/sharksmhi/ctdvis.git"
+  - "https://github.com/sharksmhi/pre_system_svea.git"
+  - "https://github.com/sharksmhi/sharkpylib.git"
+  - "https://github.com/sharksmhi/svepa.git"
+
+requirements:
+  - "cmocean==1.2"
+  - "matplotlib"
+  - "scipy"
+  - "seaborn"
+  - "numpy"
+  - "gsw"
+  - "trollsift"
+  - "PyYAML"
+  - "setuptools"
+  - "bokeh"
+  - "requests"
+  - "xlrd"
+  - "openpyxl"
+  - "psutil"
+  - "screeninfo"
+  - "seawater"
+  - "pyqt5"
+
+wheels:
+  - "pyproj-3.3.0-cp38-cp38-win_amd64.whl"
+  - "six-1.16.0-py3-none-any.whl"
+  - "GDAL-3.4.1-cp38-cp38-win_amd64.whl"
+  - "Fiona-1.8.20-cp38-cp38-win_amd64.whl"
+  - "basemap-1.3.0-cp38-cp38-win_amd64.whl"
+  - "Shapely-1.8.0-cp38-cp38-win_amd64.whl"
+  - "Rtree-0.9.7-cp38-cp38-win_amd64.whl"
+  - "geopandas-0.10.2-py2.py3-none-any.whl"
+
+wheels_directory: "wheels"
+
+main_file: "SHARKtools/main.py"
+
+install_file_name: ""
+
+run_file_name: ""
