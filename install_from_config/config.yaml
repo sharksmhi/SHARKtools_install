@@ -52,3 +52,7 @@ main_file: "SHARKtools/main.py"
 install_file_name: ""
 
 run_file_name: ""
+
+copy_source_must_include_subdirs: []
+
+do_not_copy_subdirs: []

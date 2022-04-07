@@ -12,6 +12,7 @@ import datetime
 import screeninfo
 
 from install_from_config.installer import Installer
+from install_from_config.backup import Backup
 
 if getattr(sys, 'frozen', False):
     DIRECTORY = Path(sys.executable).parent
@@ -38,8 +39,10 @@ class MainApp(tk.Tk):
         self.protocol('WM_DELETE_WINDOW', self._quit_toolbox)
 
         self._installer = None
+        self._backuper = None
 
         self._saves = SaveSelection('install')
+
         self._build()
         self._saves.load_selection()
         self._load_installer()
@@ -109,52 +112,17 @@ class MainApp(tk.Tk):
         grid_configure(backup_frame, nr_rows=3, nr_columns=1)
 
         self._saves.add('install_root_file', self._stringvar_install_root)
-        self._saves.add('backup_dir', self._stringvar_backup_dir)
+        # self._saves.add('backup_dir', self._stringvar_backup_dir)
 
     def _backup(self):
-        date_string = datetime.datetime.now().strftime('%Y%m%d')
-        path = Path(DIRECTORY, 'backup.bat')
-        install_root = self._stringvar_install_root.get()
-        if not install_root:
-            messagebox.showwarning('Backup', 'Ogilltig källmapp för backup')
+        if not self._backuper:
             return
-        install_root = Path(install_root)
-        if not install_root.exists() or install_root.is_file():
-            messagebox.showwarning('Backup', 'Ogilltig källmapp för backup')
-            return
-        if 'SHARKtools' not in [p.stem for p in install_root.iterdir()]:
-            messagebox.showwarning('Installationsmapp', f'Kan inte hitta SHARKtools i valda mapp: {path}')
-            return
-
-        backup_dir = self._stringvar_backup_dir.get()
-        if not backup_dir:
-            messagebox.showwarning('Backup', 'Ogilltig destination för backup')
-            return
-        backup_dir = Path(backup_dir)
-        if not backup_dir.exists() or install_root.is_file():
-            messagebox.showwarning('Backup', 'Ogilltig destination för backup')
-            return
-        subdir = f'backup_{install_root.name}_{date_string}'
-        if backup_dir.name != subdir:
-            backup_dir = Path(backup_dir, subdir)
-        backup_dir.mkdir(parents=True, exist_ok=True)
-        if list(backup_dir.iterdir()):
-            messagebox.showwarning('Backupmap', f'Backupmappen måste vara tom: {path}')
-            return
-
-        with open(path, 'w') as fid:
-            fid.write(f'robocopy {install_root} {backup_dir} /s /xd .git .idea venv SHARKtoolbox_install __pycache__')
-        subprocess.call([str(path)])
+        try:
+            self._backuper.backup()
+        except Exception as e:
+            messagebox.showerror('Backup', e)
+            raise
         messagebox.showinfo('Backup', 'Backup klar!!')
-
-    def _ask_backup_dir(self):
-        install_directory = self._saves.get('open_install_directory')
-        directory = filedialog.askdirectory(initialdir=install_directory)
-        if not directory:
-            return
-        path = Path(directory)
-        self._saves.set('open_install_directory', str(path.parent))
-        self._stringvar_backup_dir.set(str(path))
 
     def _ask_install_root(self):
         install_directory = self._saves.get('open_install_directory')
@@ -162,8 +130,17 @@ class MainApp(tk.Tk):
         if not directory:
             return
         path = Path(directory)
-        self._saves.set('open_install_directory', str(path.parent))
-        self._stringvar_install_root.set(str(path))
+        self._backuper.set_source_directory(path)
+        self._update_backup_paths_from_backuper()
+
+    def _ask_backup_dir(self):
+        install_directory = self._saves.get('open_backup_directory')
+        directory = filedialog.askdirectory(initialdir=install_directory)
+        if not directory:
+            return
+        path = Path(directory)
+        self._backuper.set_backup_directory(path)
+        self._update_backup_paths_from_backuper()
 
     def _ask_config_file(self):
         open_directory = self._saves.get('open_directory')
@@ -176,12 +153,45 @@ class MainApp(tk.Tk):
         self._stringvar_config_file.set(str(path))
         self._load_installer()
 
+    def _update_backup_paths_from_backuper(self):
+        install_dir = str(self._backuper.source_directory or '')
+        backup_dir = str(self._backuper.backup_directory or '')
+        self._stringvar_install_root.set(install_dir)
+        self._stringvar_backup_dir.set(backup_dir)
+        self._saves.set('open_install_directory', install_dir)
+        self._saves.set('open_backup_directory', backup_dir)
+
     def _load_installer(self):
         config_file = self._stringvar_config_file.get()
         if not config_file or not Path(config_file).exists():
             return
         self._installer = Installer(config_file)
         self._update_notebook()
+        self._load_backuper()
+
+    def _load_backuper(self):
+        if not self._installer:
+            return
+        must_include_subdirs = self._installer('copy_source_must_include_subdirs', [])
+        do_not_copy_subdirs = self._installer('do_not_copy_subdirs', [])
+        self._backuper = Backup(DIRECTORY,
+                                must_include_subdirs=must_include_subdirs,
+                                do_not_copy_subdirs=do_not_copy_subdirs)
+        self._update_backuper_with_backup_paths()
+
+    def _update_backuper_with_backup_paths(self):
+        install_dir = self._stringvar_install_root.get()
+        if install_dir:
+            try:
+                self._backuper.set_source_directory(install_dir)
+            except NotADirectoryError:
+                self._stringvar_install_root.set('')
+        backup_dir = self._stringvar_backup_dir.get()
+        if backup_dir:
+            try:
+                self._backuper.set_backup_directory(backup_dir)
+            except NotADirectoryError:
+                self._stringvar_backup_dir.set('')
 
     def _update_notebook(self):
         if self._notebook:

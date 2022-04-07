@@ -37,6 +37,9 @@ class Installer:
 
         self._load_config_file()
         self._extract_data()
+
+    def __call__(self, key, default=None):
+        return self.config.get(key, default)
         
     @property
     def config_keys(self):
