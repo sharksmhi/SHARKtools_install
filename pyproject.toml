@@ -1,0 +1,26 @@
+[project]
+name = "SHARKtools_install"
+version = "1.0.0"
+description = "Default template for PDM package"
+authors = [
+    {name = "Magnus Wenzer", email = "nodc@smhi.se"},
+]
+dependencies = [
+    "flet>=0.22.1",
+]
+requires-python = ">=3.11"
+readme = "README.md"
+license = {text = "MIT"}
+
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"
+
+
+[tool.pdm]
+distribution = true
+
+[tool.pdm.dev-dependencies]
+dev = [
+    "pyinstaller>=4.5.1",
+]
