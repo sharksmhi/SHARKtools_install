@@ -204,7 +204,7 @@ class InstallSHARKtools:
         # Activate venv
         lines.append(f'call {self._venv_directory}/Scripts/activate')
 
-        lines.append(str(self._main_python_file_path))
+        lines.append(f'python {self._main_python_file_path}')
 
         with open(self.batch_file_run, 'w') as fid:
             fid.write('\n'.join(lines))
